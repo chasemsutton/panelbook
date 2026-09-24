@@ -5,7 +5,7 @@
   const SORT_KEY = "panelbook-sort-preference-v1";
   const CHANNEL_KEY = "panelbook-update-channel-v1";
   const UPDATE_CHECK_KEY = "panelbook-last-update-check-v1";
-  const APP_VERSION = "0.1.2";
+  const APP_VERSION = "0.1.3";
   const RELEASES_URL = "https://api.github.com/repos/chasemsutton/panelbook/releases?per_page=30";
   const UPDATE_FILES = ["styles.css","app.js","README.md","release.json","panelbook.html"];
   const SORT_FIELDS = {circuits:["assignment","name","voltage","amps","gauge","labelMode"],points:["circuitId","name","location","id"]};

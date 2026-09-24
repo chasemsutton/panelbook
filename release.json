@@ -1,9 +1,9 @@
 {
-  "version": "v0.1.2",
-  "files": {
-    "panelbook.html": "d4733fefc61f2f3ed7b2f50953ed7085165e8515ddef7395cdcad3ab4cc77ea8",
-    "styles.css": "a94648bcf1982afd6885a7128dfdfe2fa1217f6a46510056c8bbae6c2849fe7d",
-    "app.js": "8d068c5c36af8fd039dc710dd8a30ed1f6ffed3b4efeb573fbc520a22e0c960e",
-    "README.md": "eed5bbb01b89c9722b59d6f3675f751a8021015431551ae977e11a1740d60833"
-  }
+    "version":  "v0.1.3",
+    "files":  {
+                  "panelbook.html":  "b8b7e12a204dbedf7667c442201c0296f112b0ad99c3bc02c2b54d375ea4c1fe",
+                  "styles.css":  "a94648bcf1982afd6885a7128dfdfe2fa1217f6a46510056c8bbae6c2849fe7d",
+                  "app.js":  "3c8a032686ec7a14681d678f5f4204906b0219a3851edd72a2ed7f0ca72cffc5",
+                  "README.md":  "1a6ebc6b2d0f8d2b6ec799306989500011791f68b75b593f70d8261dc702f214"
+              }
 }

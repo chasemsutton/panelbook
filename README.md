@@ -4,7 +4,7 @@ An offline residential electrical panel directory. Extract the archive and open 
 
 ## Updates
 
-Version 0.1.2 checks for updates quietly once a day while the app is open and the internet is available. Choose **Stable** or **Beta** beside **Check for updates** to set the channel or check immediately. Stable checks published releases; Beta includes prereleases and stable releases. The chosen channel is remembered on this device. All panel features work offline.
+Version 0.1.3 checks for updates quietly once a day while the app is open and the internet is available. Choose **Stable** or **Beta** beside **Check for updates** to set the channel or check immediately. Stable checks published releases; Beta includes prereleases and stable releases. The chosen channel is remembered on this device. All panel features work offline.
 
 When a newer release exists, click **Install update** in a browser that supports folder access. The first time, select the directory containing `panelbook.html` and approve write access. The app remembers that folder, so later updates usually install with one click. It downloads the five release files, checks their SHA-256 hashes against the release manifest, and replaces the files in that directory. The app restores the previous files if writing fails. Keep the app in the same directory when you reopen it so its browser storage remains available. On browsers without folder access, **Download release** remains available. Keep a JSON export of important data before making changes to your local files. Update checks and downloads require access to GitHub.
 
