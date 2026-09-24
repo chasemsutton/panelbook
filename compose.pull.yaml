@@ -1,0 +1,25 @@
+# Paste this file into Arcane as the entire project Compose configuration.
+# Restrict TCP 8765 with the VM/Proxmox firewall. Use the HTTPS reverse proxy
+# for browser access; direct HTTP logins are disabled by secure cookies.
+name: panelbook
+
+services:
+  panelbook:
+    image: ghcr.io/chasemsutton/panelbook:0.5.0.1
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m
+    volumes:
+      - panelbook_data:/data
+    ports:
+      - "${PANELBOOK_BIND_IP:-0.0.0.0}:8765:8765"
+
+volumes:
+  panelbook_data:
+    name: panelbook_data

@@ -22,6 +22,7 @@ jobs:
           cp .env.example .env
           sed -i 's/192.168.1.50/127.0.0.1/' .env
           docker compose config --quiet
+          docker compose -f compose.pull.yaml config --quiet
           docker compose up -d --build
       - name: Check hosted status
         run: |

@@ -1,6 +1,14 @@
 # Host Panelbook 0.5.0.1 on Proxmox
 
-This package runs Panelbook in Docker Compose inside a Linux VM. It is intended for an NGINX reverse proxy on a separate machine and an HTTPS domain. The Windows portable app is a separate download. Both use the same database format.
+Panelbook runs in Docker Compose inside a Linux VM. The one-file `compose.pull.yaml` pulls a prebuilt image from GitHub Container Registry, including the app and its runtime; it works in Arcane without uploading a Dockerfile or `program/` folder. `compose.yaml` remains available for building the image from source. Both setups use the same database format and an NGINX reverse proxy with HTTPS.
+
+## Arcane: deploy from one Compose file
+
+In Arcane, create a project named `panelbook` and paste the contents of [`compose.pull.yaml`](compose.pull.yaml) as its Compose configuration. Set `PANELBOOK_BIND_IP` in Arcane's environment editor if you want to bind TCP 8765 to a particular VM interface; without it, Docker listens on all IPv4 interfaces. Choose **Deploy**. Arcane pulls `ghcr.io/chasemsutton/panelbook:0.5.0.1`; no Dockerfile, source files, or separate image host are needed. Keep the `panelbook_data` volume when redeploying. To update later, change the image tag in the Compose file to the next published version and redeploy.
+
+Allow TCP 8765 only from your NGINX machine with the VM or Proxmox firewall. Access Panelbook through the HTTPS domain on NGINX, including from the LAN. The direct VM HTTP address does not support hosted login because the app uses `Secure` cookies. The NGINX configuration and LAN DNS steps are below.
+
+## Build from source with Docker Compose
 
 ## 1. Prepare the VM and network
 

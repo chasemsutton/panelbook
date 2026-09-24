@@ -1,0 +1,42 @@
+name: Publish container
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Released version without the v prefix'
+        required: true
+        default: '0.5.0.1'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.version && format('v{0}', inputs.version) || github.ref }}
+      - name: Build, smoke test, and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_VERSION#v}"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:$version"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t "$image" .
+          container="$(docker run -d -p 127.0.0.1:8765:8765 "$image")"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8765/api/status > /tmp/panelbook-status.json; then break; fi
+            sleep 1
+          done
+          python -c 'import json,sys; actual=json.load(open("/tmp/panelbook-status.json"))["version"]; assert actual==sys.argv[1], (actual,sys.argv[1])' "$version"
+          docker push "$image"
