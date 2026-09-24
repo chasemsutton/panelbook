@@ -1,6 +1,12 @@
 # Panelbook
 
-An offline residential electrical panel directory. Extract the archive and open `panelbook.html` in a modern browser. Keep the four files in one directory; no server, build step, account, or internet connection is needed.
+An offline residential electrical panel directory. Extract the archive and open `panelbook.html` in a modern browser. Keep the five files in one directory; no server, build step, account, or internet connection is needed.
+
+## Updates
+
+Version 0.1.0 is the first stable release. Choose **Stable** or **Beta** beside **Check for updates**, then click the button while connected to the internet. Stable checks published releases; Beta includes prereleases and stable releases. The chosen channel is remembered on this device. The app never checks automatically, and all other features work offline.
+
+When a newer release exists, **Install update** in a browser that supports folder access asks you to select the directory containing `panelbook.html`. It downloads the five release files, checks their SHA-256 hashes against the release manifest, and replaces the files in that directory. Keep the app in the same directory when you reopen it so its browser storage remains available. On browsers without folder access, click **Download release**, extract the archive, and replace the five files in the same directory. Keep a JSON export of important data before making changes to your local files. Update checks and downloads require access to GitHub.
 
 ## Homes and panels
 
@@ -33,4 +39,4 @@ Click **Export JSON** to choose **Current panel**, **Current home**, **Everythin
 
 ## Files
 
-`panelbook.html`, `styles.css`, `app.js`, and `README.md`.
+`panelbook.html`, `styles.css`, `app.js`, `README.md`, and `release.json`.
