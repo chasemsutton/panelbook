@@ -1,44 +1,29 @@
 # Paste this file into Arcane as the entire project Compose configuration.
-# Restrict TCP 8765 with the VM/Proxmox firewall. Use the HTTPS reverse proxy
-# for browser access; direct HTTP logins are disabled by secure cookies.
+# Restrict TCP 8765 with the VM/Proxmox firewall. The default public URL is
+# http://VM-IP:8765/ on a trusted LAN. Set PANELBOOK_PUBLIC_SCHEME=https when
+# using an HTTPS reverse proxy instead.
 name: panelbook
 
 services:
-  prepare-data:
-    image: ghcr.io/chasemsutton/panelbook:latest
-    pull_policy: always
-    user: "0:0"
-    command: ["sh", "-c", "chown -R panelbook:panelbook /data"]
-    restart: "no"
+  panelbook:
+    image: ${PANELBOOK_IMAGE:-ghcr.io/chasemsutton/panelbook:latest}
+    pull_policy: ${PANELBOOK_PULL_POLICY:-always}
+    init: true
+    restart: unless-stopped
     read_only: true
     cap_drop:
       - ALL
     cap_add:
       - CHOWN
       - DAC_OVERRIDE
-    security_opt:
-      - no-new-privileges:true
-    network_mode: none
-    healthcheck:
-      disable: true
-    volumes:
-      - /var/panelbook/data:/data
-
-  panelbook:
-    image: ghcr.io/chasemsutton/panelbook:latest
-    pull_policy: always
-    depends_on:
-      prepare-data:
-        condition: service_completed_successfully
-    init: true
-    restart: unless-stopped
-    read_only: true
-    cap_drop:
-      - ALL
+      - SETGID
+      - SETUID
     security_opt:
       - no-new-privileges:true
     tmpfs:
       - /tmp:rw,nosuid,noexec,size=64m
+    environment:
+      PANELBOOK_PUBLIC_SCHEME: "${PANELBOOK_PUBLIC_SCHEME:-http}"
     volumes:
       - /var/panelbook/data:/data
     ports:

@@ -23,6 +23,7 @@ jobs:
           sed -i 's/192.168.1.50/127.0.0.1/' .env
           docker compose config --quiet
           docker compose -f compose.pull.yaml config --quiet
+          test "$(docker compose -f compose.pull.yaml config --services)" = panelbook
           sudo mkdir -p /var/panelbook/data
           sudo chown root:root /var/panelbook/data
           sudo chmod 755 /var/panelbook/data
@@ -50,13 +51,35 @@ jobs:
           PY
       - name: Verify pull-only deployment prepares root-owned data
         run: |
+          image=$(docker inspect panelbook-panelbook-1 --format '{{.Image}}')
+          docker tag "$image" panelbook:test
           docker compose down
           sudo chown root:root /var/panelbook/data
           sudo chmod 755 /var/panelbook/data
+          export PANELBOOK_IMAGE=panelbook:test PANELBOOK_PULL_POLICY=never
           docker compose -f compose.pull.yaml up -d --wait --wait-timeout 120
           test "$(stat -c %u /var/panelbook/data)" != 0
           curl -fsS http://127.0.0.1:8765/api/status > /tmp/panelbook-pull-status.json
           python -c 'import json; assert json.load(open("/tmp/panelbook-pull-status.json"))["version"] == "0.5.0.1"'
+          python - <<'PY'
+          import json
+          import re
+          import subprocess
+          import urllib.request
+
+          logs = subprocess.check_output(
+              ['docker', 'compose', '-f', 'compose.pull.yaml', 'logs', '--no-log-prefix', 'panelbook'], text=True)
+          tokens = re.findall(r'First account setup code: (\S+)', logs)
+          assert tokens, 'The hosted first-account setup code was not logged'
+          request = urllib.request.Request(
+              'http://127.0.0.1:8765/api/setup',
+              data=json.dumps({'username': 'owner', 'password': 'a test-only password',
+                               'setupToken': tokens[-1]}).encode(),
+              headers={'Origin': 'http://127.0.0.1:8765', 'Content-Type': 'application/json'})
+          with urllib.request.urlopen(request) as response:
+              assert response.status == 201
+              assert 'Secure' not in response.headers['Set-Cookie']
+          PY
       - name: Validate NGINX example
         run: |
           mkdir -p "$RUNNER_TEMP/panelbook-nginx/certs"

@@ -766,10 +766,13 @@ def main():
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--secure-cookies", action="store_true", help="Use when served through HTTPS")
     args = parser.parse_args()
+    public_scheme = os.environ.get("PANELBOOK_PUBLIC_SCHEME", "http").lower()
+    if public_scheme not in ("http", "https"):
+        parser.error("PANELBOOK_PUBLIC_SCHEME must be http or https")
     db_path = (args.data_dir or APP_ROOT / "data") / "panelbook.sqlite3"
     initialize_database(db_path)
     local_mode = args.host in ("127.0.0.1", "localhost", "::1")
-    server = PanelbookServer((args.host, args.port), db_path, args.secure_cookies, local_mode)
+    server = PanelbookServer((args.host, args.port), db_path, args.secure_cookies or public_scheme == "https", local_mode)
     url = "http://127.0.0.1:%d/" % args.port
     print("Panelbook %s running at %s" % (VERSION, url), flush=True)
     with database(db_path) as db:
