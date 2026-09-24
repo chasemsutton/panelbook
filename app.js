@@ -3,6 +3,10 @@
   const STORAGE_KEY = "panelbook-workspace-v4";
   const PREVIOUS_KEY = "panelbook-directory-v3";
   const SORT_KEY = "panelbook-sort-preference-v1";
+  const CHANNEL_KEY = "panelbook-update-channel-v1";
+  const APP_VERSION = "0.1.0";
+  const RELEASES_URL = "https://api.github.com/repos/chasemsutton/panelbook/releases?per_page=30";
+  const UPDATE_FILES = ["styles.css","app.js","README.md","release.json","panelbook.html"];
   const SORT_FIELDS = {circuits:["assignment","name","voltage","amps","gauge","labelMode"],points:["circuitId","name","location","id"]};
   const GAUGES = {"14":15,"12":20,"10":30,"8":40,"6":55,"4":70,"2":95,"1/0":125};
   const el = id => document.getElementById(id);
@@ -16,6 +20,116 @@
   let sorts = {circuits:{key:"assignment",dir:1},points:{key:"circuitId",dir:1}};
   let scopeMode = "print";
   let pendingPanelImport = null;
+  let availableUpdate = null;
+  let updateRequestId = 0;
+
+  function versionParts(value) {
+    const match=/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(value);
+    return match ? [Number(match[1]),Number(match[2]),Number(match[3]),match[4]||""] : null;
+  }
+  function compareVersions(a,b) {
+    const left=versionParts(a),right=versionParts(b);
+    if(!left||!right)return 0;
+    for(let i=0;i<3;i++)if(left[i]!==right[i])return Math.sign(left[i]-right[i]);
+    if(!left[3]||!right[3])return left[3]?-1:right[3]?1:0;
+    const x=left[3].split("."),y=right[3].split(".");
+    for(let i=0;i<Math.max(x.length,y.length);i++){
+      if(x[i]===undefined||y[i]===undefined)return x[i]===undefined?-1:1;
+      if(x[i]===y[i])continue;
+      const xn=/^\d+$/.test(x[i]),yn=/^\d+$/.test(y[i]);
+      return xn&&yn ? Math.sign(Number(x[i])-Number(y[i])) : xn?-1:yn?1:x[i]<y[i]?-1:1;
+    }
+    return 0;
+  }
+  function setUpdateMessage(message,hint="") {
+    el("updateMessage").textContent=message;
+    el("updateHint").textContent=hint;
+    el("updateHint").hidden=!hint;
+  }
+  async function getReleaseText(tag,file) {
+    const url=`https://raw.githubusercontent.com/chasemsutton/panelbook/${encodeURIComponent(tag)}/${file}`;
+    const response=await fetch(url,{cache:"no-store"});
+    if(!response.ok)throw Error(`Could not download ${file} (${response.status}).`);
+    return response.text();
+  }
+  async function sha256(text) {
+    const bytes=new TextEncoder().encode(text);
+    const digest=await crypto.subtle.digest("SHA-256",bytes);
+    return Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,"0")).join("");
+  }
+  async function verifiedFiles(release,manifest) {
+    const contents=new Map();
+    for(const file of UPDATE_FILES){
+      const body=file==="release.json"?JSON.stringify(manifest,null,2)+"\n":await getReleaseText(release.tag_name,file);
+      if(file!=="release.json" && await sha256(body)!==manifest.files[file])throw Error(`${file} did not pass the release integrity check.`);
+      contents.set(file,body);
+    }
+    return contents;
+  }
+  async function checkUpdates() {
+    const request=++updateRequestId;
+    availableUpdate=null;
+    el("updateInstallBtn").hidden=true;el("updateDownloadBtn").hidden=true;
+    el("updateTitle").textContent=`Panelbook ${APP_VERSION} · updates`;
+    setUpdateMessage(`Checking ${el("updateChannel").value} releases…`);
+    el("updateDialog").showModal();
+    try {
+      const response=await fetch(RELEASES_URL,{headers:{Accept:"application/vnd.github+json"},cache:"no-store"});
+      if(!response.ok)throw Error(`GitHub returned ${response.status}.`);
+      const channel=el("updateChannel").value;
+      const releases=(await response.json()).filter(r=>!r.draft && versionParts(r.tag_name) && (channel==="beta"||!r.prerelease));
+      releases.sort((a,b)=>compareVersions(b.tag_name,a.tag_name));
+      if(request!==updateRequestId)return;
+      const release=releases[0];
+      if(!release){setUpdateMessage(`No ${channel} release is available yet.`);return;}
+      if(compareVersions(release.tag_name,APP_VERSION)<=0){setUpdateMessage(`You’re up to date on the ${channel} channel (version ${APP_VERSION}).`);return;}
+      const asset=release.assets?.find(a=>a.name===`panelbook-${release.tag_name}.zip`);
+      let manifest=null;
+      try {
+        manifest=JSON.parse(await getReleaseText(release.tag_name,"release.json"));
+        if(manifest.version!==release.tag_name || !UPDATE_FILES.filter(f=>f!=="release.json").every(f=>/^[a-f0-9]{64}$/.test(manifest.files?.[f])))throw Error("Invalid release manifest.");
+      } catch { manifest=null; /* Keep the release download available when direct installation is unavailable. */ }
+      if(request!==updateRequestId)return;
+      availableUpdate={release,asset,manifest};
+      setUpdateMessage(`Version ${release.tag_name.replace(/^v/,"")} is available (${release.prerelease?"beta":"stable"}).`,
+        manifest && "showDirectoryPicker" in window && crypto?.subtle ? "Install update will ask you to choose the folder containing panelbook.html. Your saved data stays in this browser." : "Download the release, extract it, and replace the application files in your Panelbook folder. Your saved data stays in this browser.");
+      el("updateInstallBtn").hidden=!(manifest && "showDirectoryPicker" in window && crypto?.subtle);
+      el("updateDownloadBtn").hidden=!asset;
+    } catch(error) {if(request===updateRequestId)setUpdateMessage(`Could not check updates: ${error.message}`,"Connect to the internet and try again. Panelbook itself still works offline.");}
+  }
+  async function installUpdate() {
+    const current=availableUpdate;
+    if(!current?.manifest)return;
+    const install=el("updateInstallBtn");install.disabled=true;
+    try {
+      setUpdateMessage("Downloading and checking the release files…");
+      const contents=await verifiedFiles(current.release,current.manifest);
+      setUpdateMessage("Choose the folder that already contains panelbook.html.");
+      const directory=await window.showDirectoryPicker({mode:"readwrite"});
+      await directory.getFileHandle("panelbook.html");
+      const originals=new Map(),written=[];
+      for(const name of UPDATE_FILES){const handle=await directory.getFileHandle(name);originals.set(name,await (await handle.getFile()).text());}
+      try {
+        for(const name of UPDATE_FILES){
+          const handle=await directory.getFileHandle(name);
+          written.push(name);
+          const writer=await handle.createWritable();
+          try {await writer.write(contents.get(name));await writer.close();}
+          catch(error){await writer.abort().catch(()=>{});throw error;}
+        }
+      } catch(error) {
+        let restored=true;
+        for(const name of written.reverse())try{const handle=await directory.getFileHandle(name);const writer=await handle.createWritable();await writer.write(originals.get(name));await writer.close();}catch{restored=false;}
+        throw Error(`${error.message}${restored?" Previous files were restored.":" Some files may need replacement from the release download."}`);
+      }
+      setUpdateMessage(`Installed ${current.release.tag_name}. Reloading…`);
+      location.reload();
+    } catch(error) {
+      if(error.name==="AbortError")setUpdateMessage("Update canceled. No files were changed.");
+      else setUpdateMessage(`Update failed: ${error.message}`,"You can download and extract the release instead.");
+      install.disabled=false;
+    }
+  }
 
   function isPosition(n, spaces = state.spaces) { return Number.isInteger(n) && n >= 1 && n <= spaces; }
   function nextInColumn(n) { return n + 2; }
@@ -512,6 +626,11 @@
     workbook=next;state=home().panels.find(p=>p.id===workbook.selectedPanelId);selected=1;renderAll();notify("All homes and panels imported.",true);
   }
   function wireEvents() {
+    el("updateChannel").addEventListener("change",e=>{try{localStorage.setItem(CHANNEL_KEY,e.target.value);}catch{};});
+    el("checkUpdatesBtn").addEventListener("click",checkUpdates);
+    el("updateCancelBtn").addEventListener("click",()=>{updateRequestId++;el("updateDialog").close();});
+    el("updateDownloadBtn").addEventListener("click",()=>{if(!availableUpdate?.asset)return;const link=document.createElement("a");link.href=availableUpdate.asset.browser_download_url;link.rel="noopener noreferrer";link.click();});
+    el("updateInstallBtn").addEventListener("click",installUpdate);
     el("homeSelect").addEventListener("change",e=>{const chosen=workbook.homes.find(h=>h.id===Number(e.target.value));if(!chosen)return;workbook.selectedHomeId=chosen.id;workbook.selectedPanelId=chosen.panels[0].id;state=chosen.panels[0];selected=1;renderAll();});
     el("renameHomeBtn").addEventListener("click",()=>{const name=prompt("Rename this home or location:",home().name);if(name===null)return;const clean=name.trim().slice(0,80);if(!clean){notify("Enter a home name.");return;}home().name=clean;renderAll();});
     el("panelNav").addEventListener("click",e=>{const button=e.target.closest("[data-open-panel]");if(button)choosePanel(Number(button.dataset.openPanel));});
@@ -551,6 +670,7 @@
   }
   function init() {
     for(let n=12;n<=42;n+=2){const option=document.createElement("option");option.value=n;option.textContent=`${n} spaces`;el("spaceCount").append(option);}
+    try {if(localStorage.getItem(CHANNEL_KEY)==="beta")el("updateChannel").value="beta";}catch{}
     load();wireEvents();renderAll();
   }
   init();
