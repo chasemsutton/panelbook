@@ -6,8 +6,8 @@ name: panelbook
 
 services:
   panelbook:
-    image: ${PANELBOOK_IMAGE:-ghcr.io/chasemsutton/panelbook:latest}
-    pull_policy: ${PANELBOOK_PULL_POLICY:-always}
+    image: ghcr.io/chasemsutton/panelbook:latest
+    pull_policy: always
     init: true
     restart: unless-stopped
     read_only: true
@@ -23,7 +23,7 @@ services:
     tmpfs:
       - /tmp:rw,nosuid,noexec,size=64m
     environment:
-      PANELBOOK_PUBLIC_SCHEME: "${PANELBOOK_PUBLIC_SCHEME:-http}"
+      - PANELBOOK_PUBLIC_SCHEME
     volumes:
       - /var/panelbook/data:/data
     ports:
