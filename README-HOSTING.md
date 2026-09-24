@@ -1,4 +1,4 @@
-# Host Panelbook 0.4.1 on Proxmox
+# Host Panelbook 0.4.2 on Proxmox
 
 This package runs Panelbook in Docker Compose inside a Linux VM. It is intended for an NGINX reverse proxy on a separate machine and an HTTPS domain. The Windows portable app is a separate download. Both use the same database format.
 

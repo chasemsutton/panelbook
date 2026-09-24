@@ -24,8 +24,8 @@ $copied = New-Object System.Collections.Generic.List[string]
 $stopped = $false
 $newProcess = $null
 $keepWork = $false
-$startupOut = Join-Path $work 'startup.stdout.log'
-$startupErr = Join-Path $work 'startup.stderr.log'
+$startupOut = Join-Path $DataDir 'server.stdout.log'
+$startupErr = Join-Path $DataDir 'server.stderr.log'
 $statusUrl = 'http://{0}:{1}/api/status' -f $(if ($HostName -match ':') { "[$HostName]" } else { $HostName }), $Port
 
 function Write-UpdateLog([string]$message) {
@@ -39,7 +39,7 @@ function Start-Panelbook {
   # The helper inherits onefile bootloader variables from the server. A restart
   # must unpack its own runtime after the previous server removes its _MEI folder.
   $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
-  Start-Process -FilePath $exe -WorkingDirectory $program -ArgumentList $arguments -PassThru `
+  Start-Process -FilePath $exe -WorkingDirectory $program -ArgumentList $arguments -PassThru -WindowStyle Hidden `
     -RedirectStandardOutput $startupOut -RedirectStandardError $startupErr
 }
 

@@ -1,9 +1,10 @@
-"""Exercise the released 0.4.0 GUI update endpoint on Windows."""
+"""Exercise a released 0.4.0 app with the repaired GUI update helper on Windows."""
 
 import http.cookiejar
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -14,6 +15,7 @@ from pathlib import Path
 from zipfile import ZipFile
 
 
+ROOT = Path(__file__).resolve().parents[1]
 SOURCE_VERSION = "0.4.0"
 SOURCE_URL = ("https://github.com/chasemsutton/panelbook/releases/download/"
               f"v{SOURCE_VERSION}/Panelbook-Portable-v{SOURCE_VERSION}.zip")
@@ -40,6 +42,8 @@ def main():
         app = scratch / "app"
         with ZipFile(archive) as payload:
             payload.extractall(app)
+        shutil.copy2(ROOT / "program" / "update-portable.ps1",
+                     app / "program" / "update-portable.ps1")
         port = free_port()
         base = f"http://127.0.0.1:{port}"
         opener = urllib.request.build_opener(
