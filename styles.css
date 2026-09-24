@@ -119,6 +119,8 @@ th button[data-direction="desc"]::after{content:"▼"}
 .panel-management{display:flex;gap:8px;flex-wrap:wrap;width:100%;border-top:1px solid #e9edf1;padding-top:12px}
 .panel-management .button{flex:1 1 auto;padding:8px 9px}
 .danger-button{color:#a94437;border-color:#f0d0c9;background:#fff8f6}
+.update-actions{display:flex;align-items:center;gap:7px}.update-actions select{min-height:37px;border:1px solid #405164;border-radius:8px;background:#203246;color:#fff;padding:0 8px;font-size:12px;font-weight:700}.update-actions .button{height:37px}.app-dialog p[hidden],.app-dialog button[hidden]{display:none}
+@media(max-width:700px){.update-actions{flex:1 1 100%}.update-actions .button{flex:1}.update-actions select{flex:0 0 90px}}
 
 /* Exact half-height central two-pole handle and quarter-height outer handles. */
 .slot.quad{display:block;position:relative;min-height:0}
