@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 if not defined PANELBOOK_MINIMIZED (
   set "PANELBOOK_MINIMIZED=1"
   start "" /min "%ComSpec%" /d /c ""%~f0" %*"
@@ -8,8 +8,8 @@ if not defined PANELBOOK_MINIMIZED (
 )
 set "PANELBOOK_MINIMIZED="
 title Panelbook
-if exist "program\Panelbook.exe" (
-  "program\Panelbook.exe" %*
+if exist "program\PanelbookServer.exe" (
+  "program\PanelbookServer.exe" %*
 ) else (
   where py >nul 2>&1
   if not errorlevel 1 (

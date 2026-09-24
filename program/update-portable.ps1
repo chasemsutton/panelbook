@@ -13,9 +13,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $app = (Resolve-Path -LiteralPath $AppFolder).Path
 $program = Join-Path $app 'program'
-$exe = Join-Path $program 'Panelbook.exe'
+$exe = Join-Path $program 'PanelbookServer.exe'
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ('panelbook-update-' + [guid]::NewGuid().ToString('N'))
-$files = @('Panelbook.cmd', 'README.md', 'program\Panelbook.exe', 'program\panelbook.html', 'program\app.js', 'program\styles.css', 'program\update-portable.ps1')
+$files = @('Panelbook.exe', 'README.md', 'program\Panelbook.cmd', 'program\PanelbookServer.exe', 'program\panelbook.html', 'program\app.js', 'program\styles.css', 'program\update-portable.ps1')
 $zip = Join-Path $work 'release.zip'
 $staging = Join-Path $work 'staging'
 $backup = Join-Path $work 'backup'
@@ -33,7 +33,7 @@ function Write-UpdateLog([string]$message) {
 }
 
 function Start-Panelbook {
-  if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Panelbook.exe is missing from $program." }
+  if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "PanelbookServer.exe is missing from $program." }
   $arguments = @('--host', $HostName, '--port', [string]$Port, '--data-dir', ('"' + $DataDir + '"'), '--no-browser')
   if ($SecureCookies) { $arguments += '--secure-cookies' }
   # The helper inherits onefile bootloader variables from the server. A restart
@@ -69,9 +69,13 @@ try {
   New-Item -ItemType Directory -Path $work, $staging, $backup, $DataDir -Force | Out-Null
   Write-UpdateLog "Downloading $ExpectedVersion."
   Invoke-WebRequest -Uri $DownloadUrl -OutFile $zip -UseBasicParsing
-  $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  $stream = [System.IO.File]::OpenRead($zip)
+  try { $actual = [System.BitConverter]::ToString($sha256.ComputeHash($stream)).Replace('-', '') }
+  finally { $stream.Dispose(); $sha256.Dispose() }
   if ($actual -ine $ExpectedSha256) { throw 'The downloaded release failed its SHA-256 check.' }
-  Expand-Archive -LiteralPath $zip -DestinationPath $staging
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $staging)
   foreach ($name in $files) {
     if (-not (Test-Path -LiteralPath (Join-Path $staging $name) -PathType Leaf)) {
       throw "The release is missing $name."

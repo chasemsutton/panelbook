@@ -11,9 +11,10 @@ from program.server import VERSION
 
 
 PORTABLE_FILES = {
-    "Panelbook.cmd": ROOT / "Panelbook.cmd",
+    "Panelbook.exe": ROOT / "dist" / "PanelbookLauncher.exe",
     "README.md": ROOT / "README.md",
-    "program/Panelbook.exe": ROOT / "dist" / "Panelbook.exe",
+    "program/Panelbook.cmd": ROOT / "program" / "Panelbook.cmd",
+    "program/PanelbookServer.exe": ROOT / "dist" / "PanelbookServer.exe",
     "program/panelbook.html": ROOT / "program" / "panelbook.html",
     "program/app.js": ROOT / "program" / "app.js",
     "program/styles.css": ROOT / "program" / "styles.css",

@@ -75,7 +75,7 @@ def main():
         new_pid = None
         try:
             old = subprocess.Popen(
-                [str(app / "program" / "Panelbook.exe"), "--no-browser", "--port", str(port),
+                [str(app / "program" / "PanelbookServer.exe"), "--no-browser", "--port", str(port),
                  "--data-dir", str(data)],
                 creationflags=subprocess.CREATE_NO_WINDOW,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

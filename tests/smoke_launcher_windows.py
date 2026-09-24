@@ -1,6 +1,5 @@
-"""Verify the packaged Windows CMD launcher starts Panelbook minimized."""
+"""Verify the packaged Windows launcher starts and auto-closes the hidden server."""
 
-import ctypes
 import http.cookiejar
 import json
 import os
@@ -28,32 +27,10 @@ def process_info(pid):
     return json.loads(output) if output else None
 
 
-def launcher_pid(port):
+def server_pid(port):
     listener = powershell(f'Get-NetTCPConnection -LocalPort {port} -State Listen | '
                           'Select-Object -First 1 -ExpandProperty OwningProcess')
-    pid = int(listener)
-    for _ in range(5):
-        process = process_info(pid)
-        if not process:
-            break
-        if process["Name"].lower() == "cmd.exe":
-            return pid
-        pid = process["ParentProcessId"]
-    raise AssertionError("Could not find the launcher console process.")
-
-
-class Point(ctypes.Structure):
-    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
-
-
-class Rect(ctypes.Structure):
-    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
-                ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
-
-
-class WindowPlacement(ctypes.Structure):
-    _fields_ = [("length", ctypes.c_uint), ("flags", ctypes.c_uint),
-                ("showCmd", ctypes.c_uint), ("min", Point), ("max", Point), ("normal", Rect)]
+    return int(listener)
 
 
 def main():
@@ -74,11 +51,10 @@ def main():
         with socket.socket() as connection:
             connection.bind(("127.0.0.1", 0))
             port = connection.getsockname()[1]
-        first = subprocess.Popen(["cmd.exe", "/c", str(app / "Panelbook.cmd"),
+        first = subprocess.Popen([str(app / "Panelbook.exe"),
                                   "--no-browser", "--port", str(port)],
-                                 creationflags=subprocess.CREATE_NEW_CONSOLE,
                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        console_pid = None
+        running_pid = None
         try:
             first.wait(timeout=8)
             for _ in range(80):
@@ -89,18 +65,13 @@ def main():
                 except Exception:
                     time.sleep(0.25)
             else:
-                raise AssertionError("Panelbook did not start from Panelbook.cmd.")
-            console_pid = launcher_pid(port)
-            handle = int(powershell(f'(Get-Process -Id {console_pid}).MainWindowHandle'))
-            if handle:
-                placement = WindowPlacement()
-                placement.length = ctypes.sizeof(placement)
-                if not ctypes.windll.user32.GetWindowPlacement(handle, ctypes.byref(placement)):
-                    raise AssertionError("Could not inspect the launcher window.")
-                assert placement.showCmd in (2, 6, 7), f"Console was not minimized: {placement.showCmd}"
-                print("Windows CMD launcher smoke test passed; console is minimized.")
-            else:
-                print("Windows CMD launcher started; window state is unavailable in this console host.")
+                raise AssertionError("Panelbook did not start from the top-level launcher.")
+            running_pid = server_pid(port)
+            process = process_info(running_pid)
+            assert process["Name"].lower() == "panelbookserver.exe", process
+            handle = int(powershell(f'(Get-Process -Id {running_pid}).MainWindowHandle'))
+            assert handle == 0, f"Server has a visible window: {handle}"
+            print("Windows EXE launcher started the server without a console window.")
             base = f"http://127.0.0.1:{port}"
             opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
@@ -120,17 +91,15 @@ def main():
             request("/api/local/presence", {"tabId": "a" * 24, "active": True})
             request("/api/local/presence", {"tabId": "a" * 24, "active": False})
             for _ in range(20):
-                if process_info(console_pid) is None:
+                if process_info(running_pid) is None:
                     break
                 time.sleep(0.5)
             else:
-                children = powershell(f'Get-CimInstance Win32_Process -Filter "ParentProcessId={console_pid}" | '
-                                      'Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress')
-                raise AssertionError(f"Launcher console stayed open after automatic shutdown; children: {children}")
-            print("Windows CMD launcher exited after the last tab closed.")
+                raise AssertionError("Server stayed open after the last tab closed.")
+            print("Windows server exited after the last tab closed.")
         finally:
-            if console_pid:
-                subprocess.run(["taskkill", "/PID", str(console_pid), "/T", "/F"],
+            if running_pid:
+                subprocess.run(["taskkill", "/PID", str(running_pid), "/T", "/F"],
                                capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
             if first.poll() is None:
                 subprocess.run(["taskkill", "/PID", str(first.pid), "/T", "/F"],
