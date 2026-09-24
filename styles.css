@@ -65,12 +65,11 @@ th button[data-direction="desc"]::after{content:"▼"}
 
 /* Group every subpanel beneath its source panel, including nested feeders. */
 .panel-nav{display:flex;flex-wrap:nowrap;align-items:flex-start;gap:18px;overflow-x:auto;padding:4px 2px 12px;margin-top:12px}
-.panel-tree{flex:0 0 auto;min-width:220px;position:relative}
-.panel-branches>.panel-tree{flex:0 0 auto;min-width:190px}
-.panel-tree>.panel-nav-item{width:100%;max-width:none;min-height:68px;padding:11px 14px}
-.panel-branches{display:flex;justify-content:center;gap:12px;position:relative;margin-top:25px}
+.panel-tree{flex:0 0 auto;position:relative}
+.panel-tree>.panel-nav-item{display:grid;width:200px;max-width:200px;min-height:68px;margin-inline:auto;padding:11px 14px}
+.panel-branches{display:flex;justify-content:center;gap:12px;width:100%;position:relative;margin-top:25px}
 .panel-branches::before{content:"";position:absolute;left:50%;top:-25px;height:13px;border-left:2px solid #cdd8e4}
-.panel-branches::after{content:"";position:absolute;top:-12px;left:20%;right:20%;left:calc(50% / var(--children));right:calc(50% / var(--children));border-top:2px solid #cdd8e4}
+.panel-branches::after{content:"";position:absolute;top:-12px;left:calc(var(--first-width) / 2);right:calc(var(--last-width) / 2);border-top:2px solid #cdd8e4}
 .panel-branches>.panel-tree::before{content:"";position:absolute;left:50%;top:-12px;height:12px;border-left:2px solid #cdd8e4}
 .panel-branches>.panel-tree:only-child::before{height:12px}
 .panel-branches:has(>.panel-tree:only-child)::after{display:none}
@@ -97,7 +96,7 @@ th button[data-direction="desc"]::after{content:"▼"}
 .balance-footer small,.balance-card p{font-size:10px;color:#718294;line-height:1.4}
 .balance-card p{margin:8px 0 0}
 @media(max-width:1040px){.side-area{display:block;margin-top:24px}.side-area>.section-heading{margin:0 0 13px}.side-area>.section-heading:not(:first-child){margin-top:20px}.side-area .toolbar{display:grid;grid-template-columns:minmax(0,1fr) 145px}.side-area .message{margin-top:14px}}
-@media(max-width:700px){.action-group{flex:1 1 100%;justify-content:space-between}.action-group select{flex:1;max-width:none}.panel-tree{min-width:180px;flex-basis:180px}.panel-branches>.panel-tree{min-width:165px;flex-basis:165px}.side-area .toolbar{grid-template-columns:minmax(0,1fr) 110px}}
+@media(max-width:700px){.action-group{flex:1 1 100%;justify-content:space-between}.action-group select{flex:1;max-width:none}.side-area .toolbar{grid-template-columns:minmax(0,1fr) 110px}}
 
 
 @media print{.print-panel+.print-panel{break-before:page}.paper-source{font-size:8pt;color:#333;margin-top:1.5mm}.print-sort-note{font-size:8pt;font-weight:normal;color:#333;margin-left:3mm}.print-sort-arrow{font-weight:bold;white-space:nowrap}}
@@ -113,6 +112,9 @@ th button[data-direction="desc"]::after{content:"▼"}
 .dialog-choices input{accent-color:#b97924}
 .dialog-field{display:grid;gap:6px;margin:0 0 13px;color:#53687d;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
 .dialog-field select{width:100%;height:39px;border:1px solid #dce4ec;border-radius:7px;background:#fff;color:#26394c;padding:7px;font-weight:600;letter-spacing:normal;text-transform:none}
+.dialog-field input{width:100%;height:39px;border:1px solid #dce4ec;border-radius:7px;background:#fff;color:#26394c;padding:7px;font-weight:600;letter-spacing:normal;text-transform:none}
+.feeder-status{width:100%;margin:0;color:#a34033;font-size:11px;font-weight:700}.feeder-status:empty{display:none}
+input::placeholder,textarea::placeholder{color:#aab8c6;opacity:1}
 .dialog-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:19px}
 .dialog-warning{color:#a34033!important;margin:3px 0 9px!important}
 #importOverwriteFields[hidden],#importSubFields[hidden]{display:none}
@@ -128,6 +130,7 @@ th button[data-direction="desc"]::after{content:"▼"}
 .slot.quad .quad-part:nth-child(1){top:0}
 .slot.quad .quad-part:nth-child(2){top:25%;height:50%}
 .slot.quad .quad-part:nth-child(3){top:75%}
+.slot.quad .quad-middle,.slot.quad.warning .quad-middle{background:transparent}
 @media print{
  .paper-panel .paper-num>.paper-quad,.paper-panel .paper-description>.paper-quad{display:grid;grid-template-rows:25% 50% 25%;height:18mm;min-height:0}
  .print-panel.compact .paper-quad{height:16mm}
@@ -136,4 +139,5 @@ th button[data-direction="desc"]::after{content:"▼"}
 @media print{
  .paper-panel td.paper-quad-cell{padding:0}
  .paper-panel .paper-description .paper-quad>div{padding:0 1.5mm;line-height:1.08}
+ .paper-panel .paper-quad>div:nth-child(2){background:transparent}
 }
