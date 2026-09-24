@@ -1,7 +1,7 @@
-# Panelbook 0.4.2
+# Panelbook 0.5.0
 
-The Windows GUI updater now starts the replacement app with a fresh PyInstaller runtime. Earlier helpers inherited a temporary extraction folder from the old app, causing `python311.dll` load failures after shutdown. The helper also records startup errors, waits for the old server to release its port, retries transient startup failures, and verifies rollback.
+The Windows portable app now has a branded `Panelbook.exe` at the top level. It opens without a console window, starts the local server, and opens Panelbook in the browser. Click the launcher again to reopen the page while the server is running. The server still supports the local-only option to close when all tabs close. GUI updates from 0.5.0 onward update both executables and the app files.
 
-The page header now displays the version reported by the running server instead of the stale `v0.3.2` text. After an in-app update, the server runs in the background without opening a blank console window.
+This release changes the executable layout. Install 0.5.0 in a new folder instead of using the 0.4.x GUI updater. JSON export and import remain available for moving homes and panels. `program/Panelbook.cmd` is available as a fallback and for source launches.
 
-The portable and hosted release packages are `Panelbook-Portable-v0.4.2.zip` and `Panelbook-Server-v0.4.2.zip`. Existing 0.3.3 through 0.4.1 installations need one manual update or a replacement `program/update-portable.ps1` from this release before their GUI updater can use the fix. See `README.md` for the steps.
+The Windows and hosted packages are `Panelbook-Portable-v0.5.0.zip` and `Panelbook-Server-v0.5.0.zip`.

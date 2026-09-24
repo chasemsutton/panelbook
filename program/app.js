@@ -95,7 +95,7 @@
           wasOffline=true;
         }
       }
-      throw Error("Panelbook did not return in five minutes. Check data/updater.log in your Panelbook folder, then run Panelbook.cmd if needed.");
+      throw Error("Panelbook did not return in five minutes. Check data/updater.log in your Panelbook folder, then run Panelbook.exe if needed.");
     }
     catch(error) { el("updateMessage").textContent=error.message; el("updateInstallBtn").disabled=false; }
   }
@@ -814,7 +814,7 @@
     for(let n=12;n<=42;n+=2){const option=document.createElement("option");option.value=n;option.textContent=`${n} spaces`;el("spaceCount").append(option);}
     wireAccountEvents();
     if(location.protocol==="file:"){
-      offerLegacyExport("Run Panelbook.cmd, then import your old JSON export. This file page can export data saved by this browser.");
+      offerLegacyExport("Run Panelbook.exe, then import your old JSON export. This file page can export data saved by this browser.");
       return;
     }
     try{
@@ -831,7 +831,7 @@
         const token=/^#setup=(.+)$/.exec(location.hash)?.[1];
         if(token)el("setupToken").value=decodeURIComponent(token);
       }else if(status.user)await enterApp(status);
-    }catch(error){offerLegacyExport(`Could not reach the Panelbook server: ${error.message}. Run Panelbook.cmd.`);}
+    }catch(error){offerLegacyExport(`Could not reach the Panelbook server: ${error.message}. Run Panelbook.exe.`);}
   }
   init();
 })();

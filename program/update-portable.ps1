@@ -13,9 +13,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $app = (Resolve-Path -LiteralPath $AppFolder).Path
 $program = Join-Path $app 'program'
-$exe = Join-Path $program 'Panelbook.exe'
+$exe = Join-Path $program 'PanelbookServer.exe'
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ('panelbook-update-' + [guid]::NewGuid().ToString('N'))
-$files = @('Panelbook.cmd', 'README.md', 'program\Panelbook.exe', 'program\panelbook.html', 'program\app.js', 'program\styles.css', 'program\update-portable.ps1')
+$files = @('Panelbook.exe', 'README.md', 'program\Panelbook.cmd', 'program\PanelbookServer.exe', 'program\panelbook.html', 'program\app.js', 'program\styles.css', 'program\update-portable.ps1')
 $zip = Join-Path $work 'release.zip'
 $staging = Join-Path $work 'staging'
 $backup = Join-Path $work 'backup'
@@ -33,7 +33,7 @@ function Write-UpdateLog([string]$message) {
 }
 
 function Start-Panelbook {
-  if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Panelbook.exe is missing from $program." }
+  if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "PanelbookServer.exe is missing from $program." }
   $arguments = @('--host', $HostName, '--port', [string]$Port, '--data-dir', ('"' + $DataDir + '"'), '--no-browser')
   if ($SecureCookies) { $arguments += '--secure-cookies' }
   # The helper inherits onefile bootloader variables from the server. A restart
