@@ -1,10 +1,10 @@
-# Panelbook 0.3.3
+# Panelbook 0.4.0
 
-Panelbook stores electrical panel directories in a local SQLite database and opens its interface in a browser. The same app can run on a Windows computer or a home server. Version 0.3.3 fixes automatic updates on Windows. The minimized launcher and optional automatic shutdown for local-only workspaces remain available.
+Panelbook stores electrical panel directories in a local SQLite database and opens its interface in a browser. Version 0.4.0 has separate Windows portable and Proxmox server packages. The server package includes Docker Compose and an NGINX configuration example for an HTTPS domain. Accounts can share homes with viewer or editor access.
 
 ## Windows portable app
 
-1. Download `Panelbook-Portable-v0.3.3.zip` from the [0.3.3 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.3.3) and extract it to a folder you can keep.
+1. Download `Panelbook-Portable-v0.4.0.zip` from the [0.4.0 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.4.0) and extract it to a folder you can keep.
 2. Double-click **`Panelbook.cmd`** at the top level. It starts the local server in a minimized console window and opens `http://127.0.0.1:8765/` in your usual browser.
 3. Choose **Continue locally without a login** to use Panelbook only from this machine, or create a login for accounts and sharing. When creating a login, the setup code is filled automatically if the launcher opens the page. Otherwise, copy it from the Panelbook console.
 
@@ -29,15 +29,15 @@ In a local-only workspace, select **Close server when all tabs close** to stop P
 
 The local administrator's **Check for updates** button downloads a newer portable release, checks its SHA-256 digest, replaces app files, and restarts Panelbook. The open browser tab reloads when the new server is ready. It preserves the database in `data/`. If copying or startup fails, the helper restores and restarts the previous app, and writes details to `data/updater.log`. Hosted installations are updated by redeploying the server.
 
-**Manual update from 0.2.0 through 0.3.2:** These versions have unreliable or broken updater launch paths. Close Panelbook, extract the 0.3.3 ZIP into a new folder, then copy your existing `data/` folder beside the new `Panelbook.cmd`. Run the new launcher. Keep the original folder as a backup until you confirm your homes and accounts appear. Starting with 0.3.3, use **Check for updates** for future releases.
+**Manual update from 0.2.0 through 0.3.2:** These versions have unreliable or broken updater launch paths. Close Panelbook, extract the 0.4.0 portable ZIP into a new folder, then copy your existing `data/` folder beside the new `Panelbook.cmd`. Run the new launcher. Keep the original folder as a backup until you confirm your homes and accounts appear. Versions 0.3.3 and newer can use **Check for updates**.
 
 `Panelbook.cmd` also runs the source version if Python 3.11 or newer is installed and `program/Panelbook.exe` is absent. In that mode, start it with `python program/server.py` or the launcher; app updates are done with Git or a new source archive.
 
 ## Importing 0.1.4 data
 
-In 0.1.4, choose **Export JSON → Everything** in the browser where your old data appears. Then open 0.3.3 and choose **Import JSON**. It accepts version 4 exports of an individual panel, a home, or everything. Imported homes are added to the workspace; existing homes remain available. A panel export can be added or used to replace a panel.
+In 0.1.4, choose **Export JSON → Everything** in the browser where your old data appears. Then open 0.4.0 and choose **Import JSON**. It accepts version 4 exports of an individual panel, a home, or everything. Imported homes are added to the workspace; existing homes remain available. A panel export can be added or used to replace a panel.
 
-If you cannot open the old app, open its original `panelbook.html` at the same path in the same browser to recover its browser storage. Opening the new HTML file with `file://` offers **Export data from this browser** when version 4 data is available for that file's origin. Export before moving or deleting the old files. The 0.3.3 server does not automatically read browser storage.
+If you cannot open the old app, open its original `panelbook.html` at the same path in the same browser to recover its browser storage. Opening the new HTML file with `file://` offers **Export data from this browser** when version 4 data is available for that file's origin. Export before moving or deleting the old files. The 0.4.0 server does not automatically read browser storage.
 
 ## Accounts and sharing
 
@@ -45,9 +45,9 @@ The first login is an administrator. Use **Users** to add accounts, then **Share
 
 ## Home server
 
-Run `docker compose up -d --build` from the source checkout, or run `python program/server.py --host 0.0.0.0 --port 8765 --data-dir /path/to/data --no-browser --secure-cookies` with Python 3.11+. The Compose file publishes only to the server's loopback address at port 8765. Put an HTTPS reverse proxy in front of it for remote access and preserve the incoming `Host` header. The server prints the first-account setup code in its logs (`docker compose logs panelbook`). Keep the `/data` volume or your configured data directory when redeploying. Back up the database with SQLite's backup API or stop the server before copying the database file.
+Download `Panelbook-Server-v0.4.0.zip` from the [0.4.0 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.4.0). Follow [README-HOSTING.md](README-HOSTING.md) for a Proxmox Linux VM, Docker Compose, a separate NGINX machine, HTTPS, firewall access, backup, and updates. The server package has source files and no Windows executable. The Compose file requires an explicit private bind IP in `.env` and keeps the database in a named Docker volume. The Windows portable ZIP remains compatible with in-app updates from 0.3.3 onward.
 
-The app has account passwords, session cookies, roles, and CSRF protection. For access from outside your home network, use HTTPS and your usual network access controls. Do not publish the bare HTTP port to the internet.
+The app has account passwords, secure session cookies in hosted mode, roles, and CSRF protection. For access from outside your home network, use HTTPS and restrict direct access to the backend port to your NGINX machine.
 
 ## Working with panels
 
@@ -57,4 +57,4 @@ Panel layout and wire warnings are documentation aids. Check the actual panel la
 
 ## Development
 
-The server uses Python's standard library, SQLite, and static HTML/CSS/JavaScript. Run `python -m unittest discover -s tests -v` for its integration tests. To build the Windows portable executable, install PyInstaller and run `python -m PyInstaller --onefile --console --name Panelbook program/server.py`, then `python scripts/package_release.py`. The packager puts `Panelbook.cmd` and this README at the ZIP root and the executable, HTML, JavaScript, CSS, and updater script in `program/`. Publish only `Panelbook-Portable-vX.Y.Z.zip`; never package `data/`. On Windows, run `python tests/smoke_updater_windows.py` and `python tests/smoke_launcher_windows.py` after packaging to verify the updater and launcher.
+The server uses Python's standard library, SQLite, and static HTML/CSS/JavaScript. Run `python -m unittest discover -s tests -v` for its integration tests. To build the Windows portable executable, install PyInstaller and run `python -m PyInstaller --onefile --console --name Panelbook program/server.py`, then `python scripts/package_release.py`. The packager creates separate portable and server ZIPs without `data/`. On Windows, run `python tests/smoke_updater_windows.py` and `python tests/smoke_launcher_windows.py` after packaging to verify the updater and launcher.

@@ -23,7 +23,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-VERSION = "0.3.3"
+VERSION = "0.4.0"
 ROOT = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 PROGRAM_LAYOUT = ROOT.name.lower() == "program"
 APP_ROOT = ROOT.parent if PROGRAM_LAYOUT else ROOT
@@ -333,7 +333,9 @@ class PanelbookHandler(BaseHTTPRequestHandler):
     def same_origin(self):
         origin = self.headers.get("Origin", "")
         try:
-            return bool(origin) and urlsplit(origin).netloc.lower() == self.headers.get("Host", "").lower() and urlsplit(origin).scheme in ("http", "https")
+            parsed = urlsplit(origin)
+            expected_scheme = "https" if self.server.secure_cookies else "http"
+            return bool(origin) and parsed.netloc.lower() == self.headers.get("Host", "").lower() and parsed.scheme == expected_scheme
         except ValueError:
             return False
 
@@ -433,6 +435,8 @@ class PanelbookHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "same-origin")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Content-Security-Policy", "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'")
             self.end_headers()
             self.wfile.write(body)
             return

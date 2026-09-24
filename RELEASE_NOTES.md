@@ -1,7 +1,9 @@
-# Panelbook 0.3.3
+# Panelbook 0.4.0
 
-Fixes Windows portable updates hanging at “Installing the update” without restarting Panelbook. The updater now launches its helper in a hidden window, which allows the script to run and restart the server.
+This release includes two downloads: `Panelbook-Portable-v0.4.0.zip` for Windows and `Panelbook-Server-v0.4.0.zip` for a Proxmox Linux VM. The Windows in-app updater downloads only the portable ZIP.
 
-The updater smoke test now uses the same process launch flags as the app and covers a real 0.3.1 to 0.3.3 update.
+The server ZIP includes Docker Compose with a private-IP bind, non-root container, persistent database volume, secure cookies, and an NGINX HTTPS reverse proxy example for a separate machine. See `README-HOSTING.md` in the server ZIP for setup, firewall, first login, backup, and update steps.
 
-**Manual update required from 0.2.0 through 0.3.2.** Close Panelbook, extract the new ZIP into a new folder, copy your existing `data/` folder beside its `Panelbook.cmd`, and run the new launcher. Keep the old folder as a backup until your data appears. In-app updates work from 0.3.3 onward.
+Home sharing supports viewer access for reading, printing, and exporting, and editor access for changing panels. The owner manages shares. Hosted requests now require an HTTPS origin when secure cookies are enabled.
+
+Windows versions 0.3.3 and newer can install 0.4.0 in the app. Versions 0.2.0 through 0.3.2 require the manual update described in README.md.

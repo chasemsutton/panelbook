@@ -1,0 +1,26 @@
+# Replace the domain, certificate paths, and Panelbook VM private IP.
+# Use this on the separate NGINX machine after its TLS certificate exists.
+server {
+    listen 80;
+    server_name panelbook.example.com;
+    return 301 https://panelbook.example.com$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name panelbook.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/panelbook.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/panelbook.example.com/privkey.pem;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    client_max_body_size 20m;
+    location / {
+        proxy_pass http://192.168.1.50:8765;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+    }
+}

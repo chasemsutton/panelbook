@@ -1,6 +1,8 @@
-.git
-data
-dist
-build
+.git/
+.env
+data/
+dist/
+build/
+__pycache__/
+*.pyc
 *.spec
-__pycache__

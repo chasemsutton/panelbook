@@ -49,13 +49,13 @@ class Client:
 class ServerTests(unittest.TestCase):
     def test_update_uses_single_portable_asset(self):
         releases = [
-            {"tag_name": "v0.3.5", "assets": [{"name": "Panelbook-Windows-v0.3.5.zip", "digest": "sha256:" + "a" * 64}]},
-            {"tag_name": "v0.3.4", "assets": [{"name": "Panelbook-Portable-v0.3.4.zip", "digest": "sha256:" + "b" * 64,
+            {"tag_name": "v0.4.2", "assets": [{"name": "Panelbook-Server-v0.4.2.zip", "digest": "sha256:" + "a" * 64}]},
+            {"tag_name": "v0.4.1", "assets": [{"name": "Panelbook-Portable-v0.4.1.zip", "digest": "sha256:" + "b" * 64,
                                                   "browser_download_url": "https://example.test/release.zip"}]},
         ]
         with patch("program.server.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(releases).encode())):
             release = available_release()
-        self.assertEqual(release["version"], "v0.3.4")
+        self.assertEqual(release["version"], "v0.4.1")
         self.assertEqual(release["digest"], "b" * 64)
 
     @unittest.skipUnless(os.name == "nt", "Windows process flags are required")
@@ -65,17 +65,33 @@ class ServerTests(unittest.TestCase):
         code, _ = local.request("/api/setup/local", "POST", {})
         self.assertEqual(code, 201)
         local.status()
-        release = {"version": "v0.3.4", "url": "https://example.test/release.zip", "digest": "a" * 64}
+        release = {"version": "v0.4.1", "url": "https://example.test/release.zip", "digest": "a" * 64}
         with patch("program.server.available_release", return_value=release), \
              patch("program.server.subprocess.Popen") as popen, \
              patch("program.server.sys.frozen", True, create=True), \
              patch.object(self.server, "shutdown"):
-            code, _ = local.request("/api/update/install", "POST", {"version": "v0.3.4"})
+            code, _ = local.request("/api/update/install", "POST", {"version": "v0.4.1"})
         self.assertEqual(code, 200)
         command = popen.call_args.args[0]
         self.assertEqual(command[:5], ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
         self.assertEqual(popen.call_args.kwargs["creationflags"],
                          subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP)
+
+    def test_secure_host_requires_https_origin(self):
+        self.server.secure_cookies = True
+        browser = Client(self.base)
+        code, _ = browser.request("/api/setup", "POST", {
+            "username": "owner", "password": "a long sample password", "setupToken": self.server.setup_token
+        })
+        self.assertEqual(code, 403)
+        request = urllib.request.Request(self.base + "/api/setup", method="POST",
+                                         data=json.dumps({"username": "owner", "password": "a long sample password",
+                                                          "setupToken": self.server.setup_token}).encode(),
+                                         headers={"Origin": self.base.replace("http:", "https:"),
+                                                  "Content-Type": "application/json"})
+        with urllib.request.urlopen(request) as response:
+            self.assertEqual(response.status, 201)
+            self.assertIn("Secure", response.headers["Set-Cookie"])
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -276,6 +292,18 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(shared["role"], "viewer")
         code, _ = guest.request("/api/homes/%d" % home["id"], "PUT", shared)
         self.assertEqual(code, 403)
+        code, _ = owner.request("/api/homes/%d/members/%d" % (home["id"], guest_id), "PUT", {"role": "editor"})
+        self.assertEqual(code, 200)
+        shared["name"] = "Edited by guest"
+        code, _ = guest.request("/api/homes/%d" % home["id"], "PUT", shared)
+        self.assertEqual(code, 200)
+        code, _ = guest.request("/api/homes/%d/members/%d" % (home["id"], guest_id), "PUT", {"role": "viewer"})
+        self.assertEqual(code, 403)
+        code, _ = owner.request("/api/homes/%d/members/%d" % (home["id"], guest_id), "DELETE", {})
+        self.assertEqual(code, 200)
+        code, guest_workspace = guest.request("/api/workspace")
+        self.assertEqual(code, 200)
+        self.assertNotIn(home["id"], [item["id"] for item in guest_workspace["homes"]])
 
         legacy = {"version": 4, "scope": "home", "home": {
             "id": 1, "name": "Imported 0.1.4 home", "panels": [{
@@ -290,7 +318,7 @@ class ServerTests(unittest.TestCase):
         code, workspace = owner.request("/api/workspace")
         self.assertEqual(code, 200)
         self.assertEqual(len(workspace["homes"]), 2)
-        self.assertEqual(workspace["homes"][0]["name"], "Shared house")
+        self.assertEqual(workspace["homes"][0]["name"], "Edited by guest")
         code, result = owner.request("/api/import", "POST", {"version": 4, "scope": "everything", "workbook": {
             "version": 4, "homes": [legacy["home"]], "nextHomeId": 2, "nextPanelId": 2,
             "selectedHomeId": 1, "selectedPanelId": 1
