@@ -1,9 +1,9 @@
 {
-  "version": "v0.1.1",
+  "version": "v0.1.2",
   "files": {
-    "panelbook.html": "36f5c151780b9fba12bb9ba25aa23b7b27fcf0a791eb4896be7a0948338e72bd",
+    "panelbook.html": "d4733fefc61f2f3ed7b2f50953ed7085165e8515ddef7395cdcad3ab4cc77ea8",
     "styles.css": "a94648bcf1982afd6885a7128dfdfe2fa1217f6a46510056c8bbae6c2849fe7d",
-    "app.js": "bb1e40893e65f68aca7a29de7fd708bc7b7832034be588db85c5c70d4cfcf7a2",
-    "README.md": "e83f5dcfc3732f018fd8a21663718b14b3fcc66dbf263871603abc71d1676252"
+    "app.js": "8d068c5c36af8fd039dc710dd8a30ed1f6ffed3b4efeb573fbc520a22e0c960e",
+    "README.md": "eed5bbb01b89c9722b59d6f3675f751a8021015431551ae977e11a1740d60833"
   }
 }

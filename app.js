@@ -4,7 +4,8 @@
   const PREVIOUS_KEY = "panelbook-directory-v3";
   const SORT_KEY = "panelbook-sort-preference-v1";
   const CHANNEL_KEY = "panelbook-update-channel-v1";
-  const APP_VERSION = "0.1.1";
+  const UPDATE_CHECK_KEY = "panelbook-last-update-check-v1";
+  const APP_VERSION = "0.1.2";
   const RELEASES_URL = "https://api.github.com/repos/chasemsutton/panelbook/releases?per_page=30";
   const UPDATE_FILES = ["styles.css","app.js","README.md","release.json","panelbook.html"];
   const SORT_FIELDS = {circuits:["assignment","name","voltage","amps","gauge","labelMode"],points:["circuitId","name","location","id"]};
@@ -22,6 +23,26 @@
   let pendingPanelImport = null;
   let availableUpdate = null;
   let updateRequestId = 0;
+  let updateFolder = null;
+
+  function updateFolderStore(mode, callback) {
+    return new Promise((resolve,reject)=>{
+      if(!window.indexedDB){resolve(null);return;}
+      const request=indexedDB.open("panelbook-update-folder",1);
+      request.onupgradeneeded=()=>request.result.createObjectStore("settings");
+      request.onerror=()=>reject(request.error);
+      request.onsuccess=()=>{
+        const db=request.result,transaction=db.transaction("settings",mode);
+        const item=callback(transaction.objectStore("settings"));
+        item.onsuccess=()=>resolve(item.result ?? null);
+        item.onerror=()=>reject(item.error);
+        transaction.oncomplete=()=>db.close();
+        transaction.onabort=()=>db.close();
+      };
+    });
+  }
+  const savedUpdateFolder=()=>updateFolderStore("readonly",store=>store.get("folder"));
+  const rememberUpdateFolder=folder=>updateFolderStore("readwrite",store=>store.put(folder,"folder"));
 
   function versionParts(value) {
     const match=/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(value);
@@ -66,13 +87,12 @@
     }
     return contents;
   }
-  async function checkUpdates() {
+  async function checkUpdates(silent=false) {
     const request=++updateRequestId;
     availableUpdate=null;
     el("updateInstallBtn").hidden=true;el("updateDownloadBtn").hidden=true;
     el("updateTitle").textContent=`Panelbook ${APP_VERSION} · updates`;
-    setUpdateMessage(`Checking ${el("updateChannel").value} releases…`);
-    el("updateDialog").showModal();
+    if(!silent){setUpdateMessage(`Checking ${el("updateChannel").value} releases…`);el("updateDialog").showModal();}
     try {
       const response=await fetch(RELEASES_URL,{headers:{Accept:"application/vnd.github+json"},cache:"no-store"});
       if(!response.ok)throw Error(`GitHub returned ${response.status}.`);
@@ -80,9 +100,10 @@
       const releases=(await response.json()).filter(r=>!r.draft && versionParts(r.tag_name) && (channel==="beta"||!r.prerelease));
       releases.sort((a,b)=>compareVersions(b.tag_name,a.tag_name));
       if(request!==updateRequestId)return;
+      try{localStorage.setItem(UPDATE_CHECK_KEY,String(Date.now()));}catch{}
       const release=releases[0];
-      if(!release){setUpdateMessage(`No ${channel} release is available yet.`);return;}
-      if(compareVersions(release.tag_name,APP_VERSION)<=0){setUpdateMessage(`You’re up to date on the ${channel} channel (version ${APP_VERSION}).`);return;}
+      if(!release){if(!silent)setUpdateMessage(`No ${channel} release is available yet.`);return;}
+      if(compareVersions(release.tag_name,APP_VERSION)<=0){if(!silent)setUpdateMessage(`You’re up to date on the ${channel} channel (version ${APP_VERSION}).`);return;}
       const asset=release.assets?.find(a=>a.name===`panelbook-${release.tag_name}.zip`);
       let manifest=null;
       try {
@@ -91,21 +112,34 @@
       } catch { manifest=null; /* Keep the release download available when direct installation is unavailable. */ }
       if(request!==updateRequestId)return;
       availableUpdate={release,asset,manifest};
+      if(silent)el("updateDialog").showModal();
       setUpdateMessage(`Version ${release.tag_name.replace(/^v/,"")} is available (${release.prerelease?"beta":"stable"}).`,
-        manifest && "showDirectoryPicker" in window && crypto?.subtle ? "Install update will ask you to choose the folder containing panelbook.html. Your saved data stays in this browser." : "Download the release, extract it, and replace the application files in your Panelbook folder. Your saved data stays in this browser.");
+        manifest && "showDirectoryPicker" in window && crypto?.subtle ? "Install update replaces the app files in your approved folder. The first installation asks you to choose the folder containing panelbook.html. Your saved data stays in this browser." : "Download the release, extract it, and replace the application files in your Panelbook folder. Your saved data stays in this browser.");
       el("updateInstallBtn").hidden=!(manifest && "showDirectoryPicker" in window && crypto?.subtle);
       el("updateDownloadBtn").hidden=!asset;
-    } catch(error) {if(request===updateRequestId)setUpdateMessage(`Could not check updates: ${error.message}`,"Connect to the internet and try again. Panelbook itself still works offline.");}
+    } catch(error) {if(request===updateRequestId&&!silent)setUpdateMessage(`Could not check updates: ${error.message}`,"Connect to the internet and try again. Panelbook itself still works offline.");}
   }
   async function installUpdate() {
     const current=availableUpdate;
     if(!current?.manifest)return;
-    const install=el("updateInstallBtn");install.disabled=true;
+    const install=el("updateInstallBtn");install.disabled=true;el("updateCancelBtn").disabled=true;
     try {
+      // A picker or permission prompt must happen before the first await that downloads files.
+      let directory=updateFolder;
+      if(directory){
+        if(await directory.requestPermission({mode:"readwrite"})!=="granted"){
+          updateFolder=null;
+          throw Error("Folder access was denied. Click Install update again to choose a folder.");
+        }
+      }
+      if(!directory){
+        directory=await window.showDirectoryPicker({mode:"readwrite"});
+        await directory.getFileHandle("panelbook.html");
+        updateFolder=directory;
+        try{await rememberUpdateFolder(directory);}catch{}
+      }
       setUpdateMessage("Downloading and checking the release files…");
       const contents=await verifiedFiles(current.release,current.manifest);
-      setUpdateMessage("Choose the folder that already contains panelbook.html.");
-      const directory=await window.showDirectoryPicker({mode:"readwrite"});
       await directory.getFileHandle("panelbook.html");
       const originals=new Map(),written=[];
       for(const name of UPDATE_FILES){const handle=await directory.getFileHandle(name);originals.set(name,await (await handle.getFile()).text());}
@@ -127,7 +161,7 @@
     } catch(error) {
       if(error.name==="AbortError")setUpdateMessage("Update canceled. No files were changed.");
       else setUpdateMessage(`Update failed: ${error.message}`,"You can download and extract the release instead.");
-      install.disabled=false;
+      install.disabled=false;el("updateCancelBtn").disabled=false;
     }
   }
 
@@ -653,8 +687,9 @@
   }
   function wireEvents() {
     el("updateChannel").addEventListener("change",e=>{try{localStorage.setItem(CHANNEL_KEY,e.target.value);}catch{};});
-    el("checkUpdatesBtn").addEventListener("click",checkUpdates);
+    el("checkUpdatesBtn").addEventListener("click",()=>checkUpdates());
     el("updateCancelBtn").addEventListener("click",()=>{updateRequestId++;el("updateDialog").close();});
+    el("updateDialog").addEventListener("cancel",e=>{if(el("updateInstallBtn").disabled)e.preventDefault();else updateRequestId++;});
     el("updateDownloadBtn").addEventListener("click",()=>{if(!availableUpdate?.asset)return;const link=document.createElement("a");link.href=availableUpdate.asset.browser_download_url;link.rel="noopener noreferrer";link.click();});
     el("updateInstallBtn").addEventListener("click",installUpdate);
     el("homeSelect").addEventListener("change",e=>{const chosen=workbook.homes.find(h=>h.id===Number(e.target.value));if(!chosen)return;workbook.selectedHomeId=chosen.id;workbook.selectedPanelId=chosen.panels[0].id;state=chosen.panels[0];selected=1;renderAll();});
@@ -708,6 +743,11 @@
     for(let n=12;n<=42;n+=2){const option=document.createElement("option");option.value=n;option.textContent=`${n} spaces`;el("spaceCount").append(option);}
     try {if(localStorage.getItem(CHANNEL_KEY)==="beta")el("updateChannel").value="beta";}catch{}
     load();wireEvents();renderAll();
+    savedUpdateFolder().then(folder=>{if(!updateFolder)updateFolder=folder;}).catch(()=>{});
+    try{
+      const last=Number(localStorage.getItem(UPDATE_CHECK_KEY))||0;
+      if(Date.now()-last>24*60*60*1000)checkUpdates(true);
+    }catch{checkUpdates(true);}
   }
   init();
 })();
