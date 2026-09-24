@@ -49,6 +49,15 @@ jobs:
           else:
               raise AssertionError('Hosted container did not become ready')
           PY
+      - name: Verify pull-only deployment prepares root-owned data
+        run: |
+          docker compose down
+          sudo chown root:root /var/panelbook/data
+          sudo chmod 755 /var/panelbook/data
+          docker compose -f compose.pull.yaml up -d --wait --wait-timeout 120
+          test "$(stat -c %u /var/panelbook/data)" != 0
+          curl -fsS http://127.0.0.1:8765/api/status > /tmp/panelbook-pull-status.json
+          python -c 'import json; assert json.load(open("/tmp/panelbook-pull-status.json"))["version"] == "0.5.0.1"'
       - name: Validate NGINX example
         run: |
           mkdir -p "$RUNNER_TEMP/panelbook-nginx/certs"
@@ -64,10 +73,10 @@ jobs:
           docker run --rm -v "$RUNNER_TEMP/panelbook-nginx/site.conf:/etc/nginx/conf.d/default.conf:ro" -v "$RUNNER_TEMP/panelbook-nginx/certs:/certs:ro" nginx:stable nginx -t
       - name: Container logs
         if: failure()
-        run: docker compose logs panelbook
+        run: docker compose -f compose.pull.yaml logs
       - name: Stop container
         if: always()
-        run: docker compose down
+        run: docker compose -f compose.pull.yaml down
 
   windows-portable:
     runs-on: windows-latest
