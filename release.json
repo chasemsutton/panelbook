@@ -1,9 +1,11 @@
 {
-    "version":  "v0.1.3",
-    "files":  {
-                  "panelbook.html":  "b8b7e12a204dbedf7667c442201c0296f112b0ad99c3bc02c2b54d375ea4c1fe",
-                  "styles.css":  "a94648bcf1982afd6885a7128dfdfe2fa1217f6a46510056c8bbae6c2849fe7d",
-                  "app.js":  "3c8a032686ec7a14681d678f5f4204906b0219a3851edd72a2ed7f0ca72cffc5",
-                  "README.md":  "1a6ebc6b2d0f8d2b6ec799306989500011791f68b75b593f70d8261dc702f214"
-              }
+  "version": "v0.1.4",
+  "files": {
+    "panelbook.html": "cdd9bacceb926290dafe8cc27a2b5c59c5d4d7eea3f35d1e5333bf4c4d40008d",
+    "styles.css": "6aae58404e5fc422db1a9671a294c1982ab2a1e2cdd6a4c136dbede485ff684d",
+    "app.js": "93fca8adc490494b035599d52f9a6f33e0a7417d660d8873e0d81a258e84fde7",
+    "README.md": "527fa882d2c042e91f0fec359b194c498b4974456652240614aaeb8261ecd46d",
+    "Panelbook-Setup.cmd": "03185d6ebcebbbc8544cf3b18cedde751a1743536498b94a08ae63807e27faa1",
+    "update-panelbook.ps1": "c0a7ab01a17b983aad1ab6cefe344999286ed6c2e6fe1271fbf215e2d6df8b14"
+  }
 }

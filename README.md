@@ -1,12 +1,16 @@
 # Panelbook
 
-An offline residential electrical panel directory. Extract the archive and open `panelbook.html` in a modern browser. Keep the five files in one directory; no server, build step, account, or internet connection is needed.
+An offline residential electrical panel directory. Open `panelbook.html` in a modern browser. Keep the application files in one directory; no server, build step, account, or internet connection is needed for panel editing.
 
 ## Updates
 
-Version 0.1.3 checks for updates quietly once a day while the app is open and the internet is available. Choose **Stable** or **Beta** beside **Check for updates** to set the channel or check immediately. Stable checks published releases; Beta includes prereleases and stable releases. The chosen channel is remembered on this device. All panel features work offline.
+Version 0.1.4 checks for updates quietly once a day while the app is open and the internet is available. Choose **Stable** or **Beta** beside **Check for updates** to set the channel or check immediately. Stable checks published releases; Beta includes prereleases and stable releases. The chosen channel is remembered on this device. All panel features work offline.
 
-When a newer release exists, click **Install update** in a browser that supports folder access. The first time, select the directory containing `panelbook.html` and approve write access. The app remembers that folder, so later updates usually install with one click. It downloads the five release files, checks their SHA-256 hashes against the release manifest, and replaces the files in that directory. The app restores the previous files if writing fails. Keep the app in the same directory when you reopen it so its browser storage remains available. On browsers without folder access, **Download release** remains available. Keep a JSON export of important data before making changes to your local files. Update checks and downloads require access to GitHub.
+When a newer release exists, click **Install update**. In Chrome or Edge, choose the directory containing `panelbook.html` the first time and approve write access. Panelbook remembers the folder for later updates. It checks every downloaded file against the release manifest, replaces the app files, and restores previous files if writing fails.
+
+If your browser does not offer folder access, use **Set up Windows updater**. Run the downloaded `Panelbook-Setup` file once and choose the folder containing your existing `panelbook.html`. Setup installs the current release and registers the local updater. Future clicks on **Install update** open that updater; the browser may ask whether to open it. If you are upgrading from 0.1.3 or earlier and see only **Download release**, download `Panelbook-Setup-v0.1.4.cmd` directly from the 0.1.4 release and run it instead. You do not need to extract the ZIP or replace files yourself.
+
+Panel data is stored by the browser, not in the app files. Keep opening the same `panelbook.html` path in the same browser so your saved panels remain available. Export JSON regularly as a separate backup. Update checks and downloads require access to GitHub.
 
 ## Homes and panels
 
@@ -39,4 +43,4 @@ Click **Export JSON** to choose **Current panel**, **Current home**, **Everythin
 
 ## Files
 
-`panelbook.html`, `styles.css`, `app.js`, `README.md`, and `release.json`.
+`panelbook.html`, `styles.css`, `app.js`, `README.md`, `release.json`, `update-panelbook.ps1`, and `Panelbook-Setup.cmd`.

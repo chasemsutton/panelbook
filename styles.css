@@ -116,6 +116,7 @@ th button[data-direction="desc"]::after{content:"▼"}
 .feeder-status{width:100%;margin:0;color:#a34033;font-size:11px;font-weight:700}.feeder-status:empty{display:none}
 input::placeholder,textarea::placeholder{color:#aab8c6;opacity:1}
 .dialog-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:19px}
+#updateDialog .dialog-actions{flex-wrap:wrap}
 .dialog-warning{color:#a34033!important;margin:3px 0 9px!important}
 #importOverwriteFields[hidden],#importSubFields[hidden]{display:none}
 .panel-management{display:flex;gap:8px;flex-wrap:wrap;width:100%;border-top:1px solid #e9edf1;padding-top:12px}

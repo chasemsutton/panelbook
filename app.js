@@ -5,9 +5,9 @@
   const SORT_KEY = "panelbook-sort-preference-v1";
   const CHANNEL_KEY = "panelbook-update-channel-v1";
   const UPDATE_CHECK_KEY = "panelbook-last-update-check-v1";
-  const APP_VERSION = "0.1.3";
+  const APP_VERSION = "0.1.4";
   const RELEASES_URL = "https://api.github.com/repos/chasemsutton/panelbook/releases?per_page=30";
-  const UPDATE_FILES = ["styles.css","app.js","README.md","release.json","panelbook.html"];
+  const UPDATE_FILES = ["styles.css","app.js","README.md","Panelbook-Setup.cmd","update-panelbook.ps1","release.json","panelbook.html"];
   const SORT_FIELDS = {circuits:["assignment","name","voltage","amps","gauge","labelMode"],points:["circuitId","name","location","id"]};
   const GAUGES = {"14":15,"12":20,"10":30,"8":40,"6":55,"4":70,"2":95,"1/0":125};
   const el = id => document.getElementById(id);
@@ -90,7 +90,7 @@
   async function checkUpdates(silent=false) {
     const request=++updateRequestId;
     availableUpdate=null;
-    el("updateInstallBtn").hidden=true;el("updateDownloadBtn").hidden=true;
+    el("updateInstallBtn").hidden=true;el("updateSetupBtn").hidden=true;el("updateDownloadBtn").hidden=true;
     el("updateTitle").textContent=`Panelbook ${APP_VERSION} · updates`;
     if(!silent){setUpdateMessage(`Checking ${el("updateChannel").value} releases…`);el("updateDialog").showModal();}
     try {
@@ -105,23 +105,34 @@
       if(!release){if(!silent)setUpdateMessage(`No ${channel} release is available yet.`);return;}
       if(compareVersions(release.tag_name,APP_VERSION)<=0){if(!silent)setUpdateMessage(`You’re up to date on the ${channel} channel (version ${APP_VERSION}).`);return;}
       const asset=release.assets?.find(a=>a.name===`panelbook-${release.tag_name}.zip`);
+      const setupAsset=release.assets?.find(a=>a.name===`Panelbook-Setup-${release.tag_name}.cmd`);
       let manifest=null;
       try {
         manifest=JSON.parse(await getReleaseText(release.tag_name,"release.json"));
         if(manifest.version!==release.tag_name || !UPDATE_FILES.filter(f=>f!=="release.json").every(f=>/^[a-f0-9]{64}$/.test(manifest.files?.[f])))throw Error("Invalid release manifest.");
       } catch { manifest=null; /* Keep the release download available when direct installation is unavailable. */ }
       if(request!==updateRequestId)return;
-      availableUpdate={release,asset,manifest};
+      const browserInstall=!!(manifest && typeof window.showDirectoryPicker==="function" && window.crypto?.subtle);
+      const onWindows=/Win/i.test(navigator.platform);
+      const windowsInstall=!!(manifest && onWindows);
+      availableUpdate={release,asset,setupAsset,manifest,browserInstall,windowsInstall};
       if(silent)el("updateDialog").showModal();
       setUpdateMessage(`Version ${release.tag_name.replace(/^v/,"")} is available (${release.prerelease?"beta":"stable"}).`,
-        manifest && "showDirectoryPicker" in window && crypto?.subtle ? "Install update replaces the app files in your approved folder. The first installation asks you to choose the folder containing panelbook.html. Your saved data stays in this browser." : "Download the release, extract it, and replace the application files in your Panelbook folder. Your saved data stays in this browser.");
-      el("updateInstallBtn").hidden=!(manifest && "showDirectoryPicker" in window && crypto?.subtle);
-      el("updateDownloadBtn").hidden=!asset;
+        browserInstall ? "Install update replaces app files in the folder you approve. Your saved panels stay in this browser." : windowsInstall ? "Install update opens the Windows updater. If it has not been set up yet, download and run the one-time setup first. Choose the folder containing this panelbook.html file." : onWindows&&setupAsset ? "Run the Windows updater setup to install this release without replacing files yourself." : "This browser cannot replace local files. Use a browser with folder access or the Windows updater.");
+      el("updateInstallBtn").hidden=!(browserInstall||windowsInstall);
+      el("updateSetupBtn").hidden=!(onWindows&&setupAsset);
+      el("updateDownloadBtn").hidden=!asset||browserInstall||windowsInstall||(onWindows&&setupAsset);
     } catch(error) {if(request===updateRequestId&&!silent)setUpdateMessage(`Could not check updates: ${error.message}`,"Connect to the internet and try again. Panelbook itself still works offline.");}
   }
   async function installUpdate() {
     const current=availableUpdate;
     if(!current?.manifest)return;
+    if(!current.browserInstall){
+      if(!current.windowsInstall)return;
+      location.href=`panelbook-update:${el("updateChannel").value}`;
+      setUpdateMessage("Opening the Windows updater…","If it does not open, click Set up Windows updater and run the downloaded file once.");
+      return;
+    }
     const install=el("updateInstallBtn");install.disabled=true;el("updateCancelBtn").disabled=true;
     try {
       // A picker or permission prompt must happen before the first await that downloads files.
@@ -142,10 +153,13 @@
       const contents=await verifiedFiles(current.release,current.manifest);
       await directory.getFileHandle("panelbook.html");
       const originals=new Map(),written=[];
-      for(const name of UPDATE_FILES){const handle=await directory.getFileHandle(name);originals.set(name,await (await handle.getFile()).text());}
+      for(const name of UPDATE_FILES){
+        try{const handle=await directory.getFileHandle(name);originals.set(name,await (await handle.getFile()).text());}
+        catch(error){if(error.name==="NotFoundError" && (name==="Panelbook-Setup.cmd"||name==="update-panelbook.ps1"))originals.set(name,null);else throw error;}
+      }
       try {
         for(const name of UPDATE_FILES){
-          const handle=await directory.getFileHandle(name);
+          const handle=await directory.getFileHandle(name,{create:originals.get(name)===null});
           written.push(name);
           const writer=await handle.createWritable();
           try {await writer.write(contents.get(name));await writer.close();}
@@ -153,14 +167,14 @@
         }
       } catch(error) {
         let restored=true;
-        for(const name of written.reverse())try{const handle=await directory.getFileHandle(name);const writer=await handle.createWritable();await writer.write(originals.get(name));await writer.close();}catch{restored=false;}
+        for(const name of written.reverse())try{if(originals.get(name)===null){await directory.removeEntry(name);continue;}const handle=await directory.getFileHandle(name);const writer=await handle.createWritable();await writer.write(originals.get(name));await writer.close();}catch{restored=false;}
         throw Error(`${error.message}${restored?" Previous files were restored.":" Some files may need replacement from the release download."}`);
       }
       setUpdateMessage(`Installed ${current.release.tag_name}. Reloading…`);
       location.reload();
     } catch(error) {
       if(error.name==="AbortError")setUpdateMessage("Update canceled. No files were changed.");
-      else setUpdateMessage(`Update failed: ${error.message}`,"You can download and extract the release instead.");
+      else setUpdateMessage(`Update failed: ${error.message}`,"On Windows, run the updater setup to install without replacing files yourself.");
       install.disabled=false;el("updateCancelBtn").disabled=false;
     }
   }
@@ -691,6 +705,7 @@
     el("updateCancelBtn").addEventListener("click",()=>{updateRequestId++;el("updateDialog").close();});
     el("updateDialog").addEventListener("cancel",e=>{if(el("updateInstallBtn").disabled)e.preventDefault();else updateRequestId++;});
     el("updateDownloadBtn").addEventListener("click",()=>{if(!availableUpdate?.asset)return;const link=document.createElement("a");link.href=availableUpdate.asset.browser_download_url;link.rel="noopener noreferrer";link.click();});
+    el("updateSetupBtn").addEventListener("click",()=>{if(!availableUpdate?.setupAsset)return;const link=document.createElement("a");link.href=availableUpdate.setupAsset.browser_download_url;link.rel="noopener noreferrer";link.click();setUpdateMessage("Run the downloaded setup file once, then return to Panelbook.","Choose the folder containing this panelbook.html file. The setup installs the update and connects the in-app button to the Windows updater.");});
     el("updateInstallBtn").addEventListener("click",installUpdate);
     el("homeSelect").addEventListener("change",e=>{const chosen=workbook.homes.find(h=>h.id===Number(e.target.value));if(!chosen)return;workbook.selectedHomeId=chosen.id;workbook.selectedPanelId=chosen.panels[0].id;state=chosen.panels[0];selected=1;renderAll();});
     el("renameHomeBtn").addEventListener("click",()=>{const name=prompt("Rename this home or location:",home().name);if(name===null)return;const clean=name.trim().slice(0,80);if(!clean){notify("Enter a home name.");return;}home().name=clean;renderAll();});
