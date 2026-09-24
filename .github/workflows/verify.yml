@@ -80,7 +80,7 @@ jobs:
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           $vs = & $vswhere -latest -products '*' -property installationPath
           if (-not $vs) { throw 'Visual Studio C tools are unavailable.' }
-          $build = 'call "' + $vs + '\VC\Auxiliary\Build\vcvars64.bat" && rc /fo dist\panelbook.res scripts\panelbook_launcher.rc && cl /nologo /W4 /O2 /std:c11 scripts\panelbook_launcher.c dist\panelbook.res /link /SUBSYSTEM:WINDOWS shell32.lib winhttp.lib /OUT:dist\PanelbookLauncher.exe'
+          $build = 'call "' + $vs + '\VC\Auxiliary\Build\vcvars64.bat" && rc /fo dist\panelbook.res scripts\panelbook_launcher.rc && cl /nologo /W4 /O2 /std:c11 scripts\panelbook_launcher.c dist\panelbook.res /link /SUBSYSTEM:WINDOWS shell32.lib user32.lib winhttp.lib /OUT:dist\PanelbookLauncher.exe'
           cmd /c $build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package portable release
