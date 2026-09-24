@@ -6,7 +6,7 @@ This package runs Panelbook in Docker Compose inside a Linux VM. It is intended 
 
 Create a small Debian or Ubuntu VM in Proxmox with a stable private IP. Install Docker Engine and the Docker Compose plugin using [Docker's installation instructions](https://docs.docker.com/engine/install/). Extract this ZIP into a persistent directory on the VM, such as `/opt/panelbook`.
 
-Copy `.env.example` to `.env` and set `PANELBOOK_BIND_IP` to the VM's private IP. The Compose file publishes only TCP 8765 on that address. On the VM or Proxmox firewall, allow inbound TCP 8765 **only from the NGINX machine's private IP**. Do not forward port 8765 from your router. The HTTP connection from NGINX to Panelbook should stay on a trusted private network or VPN.
+Copy `.env.example` to `.env` and set `PANELBOOK_BIND_IP` to the VM's private IP. This chooses which VM address Docker listens on; it does **not** restrict which client IPs can connect. Use `0.0.0.0` if Docker needs to listen on all IPv4 interfaces, and use firewall rules to restrict source IPs or LAN subnets. The recommended setup allows inbound TCP 8765 **only from the NGINX machine's private IP**. Do not forward port 8765 from your router. The HTTP connection from NGINX to Panelbook should stay on a trusted private network or VPN. Docker-published ports can bypass UFW rules, so use the Proxmox firewall or Docker's [`DOCKER-USER` filtering](https://docs.docker.com/engine/network/packet-filtering-firewalls/) when limiting access to this port.
 
 The included `compose.yaml` is ready to use after setting `.env`. Its contents are:
 
@@ -57,6 +57,12 @@ sudo systemctl reload nginx
 ```
 
 Open `https://your-domain/`. Panelbook must be served at the domain root path, not under a subpath. Check that the page is HTTPS before creating the first account.
+
+### Use Panelbook from your LAN
+
+LAN clients can use the **same HTTPS address** as remote clients. In your LAN DNS or router's DNS override, resolve `panelbook.example.com` to the NGINX machine's private IP; keep public DNS pointed at its public entry point. Allow your LAN subnet (for example, `192.168.1.0/24`) to reach the NGINX machine on TCP 443. Keep TCP 8765 on the Panelbook VM limited to the NGINX machine. This makes LAN browser traffic stay on the LAN while NGINX still provides HTTPS and the same certificate. Use the domain name in the browser, not the VM's IP address.
+
+Direct `http://VM-IP:8765/` is not a login endpoint in this configuration. The hosted server requires HTTPS origins and sets `Secure` session cookies; browsers do not send those cookies over ordinary HTTP. A bind address such as `0.0.0.0` cannot change that. If the NGINX machine itself has multiple network interfaces, configure its firewall to allow the desired LAN subnet or all intended clients on TCP 443.
 
 ## 4. Create accounts and share homes
 
