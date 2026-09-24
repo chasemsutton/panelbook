@@ -4,18 +4,7 @@ Panelbook runs in Docker Compose inside a Linux VM. The one-file `compose.pull.y
 
 ## Arcane: deploy from one Compose file
 
-On the Docker VM, prepare the persistent host directory once. The image runs as a non-root user, so the directory must belong to that user:
-
-```sh
-sudo mkdir -p /var/panelbook/data
-image=ghcr.io/chasemsutton/panelbook:latest
-docker pull "$image"
-uid=$(docker run --rm --entrypoint id "$image" -u)
-gid=$(docker run --rm --entrypoint id "$image" -g)
-sudo chown "$uid:$gid" /var/panelbook/data
-```
-
-In Arcane, create a project named `panelbook` and paste the contents of [`compose.pull.yaml`](compose.pull.yaml) as its Compose configuration. Set `PANELBOOK_BIND_IP` in Arcane's environment editor if you want to bind TCP 8765 to a particular VM interface; without it, Docker listens on all IPv4 interfaces. Choose **Deploy**. Arcane pulls `ghcr.io/chasemsutton/panelbook:latest`; no Dockerfile, source files, or separate image host are needed. The database is stored on the VM at `/var/panelbook/data`; `/data` is its path inside the container. To update later, redeploy the project. Compose pulls the current `latest` image each time; running containers do not update themselves. For a fixed version, replace `latest` with the release number and remove `pull_policy: always`.
+In Arcane, create a project named `panelbook` and paste the contents of [`compose.pull.yaml`](compose.pull.yaml) as its Compose configuration. Set `PANELBOOK_BIND_IP` in Arcane's environment editor if you want to bind TCP 8765 to a particular VM interface; without it, Docker listens on all IPv4 interfaces. Choose **Deploy**. Arcane pulls `ghcr.io/chasemsutton/panelbook:latest`; no Dockerfile, source files, or separate image host are needed. The one-time `prepare-data` service gives the image's non-root user ownership of `/var/panelbook/data` before Panelbook starts, including when Docker creates the host directory as root. The database is stored on the VM at `/var/panelbook/data`; `/data` is its path inside the container. To update later, redeploy the project. Compose pulls the current `latest` image each time; running containers do not update themselves. For a fixed version, replace both `latest` image tags with the release number and remove both `pull_policy: always` lines.
 
 Allow TCP 8765 only from your NGINX machine with the VM or Proxmox firewall. Access Panelbook through the HTTPS domain on NGINX, including from the LAN. The direct VM HTTP address does not support hosted login because the app uses `Secure` cookies. The NGINX configuration and LAN DNS steps are below.
 
