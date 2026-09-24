@@ -4,7 +4,7 @@ Panelbook runs in Docker Compose inside a Linux VM. The one-file `compose.pull.y
 
 ## Arcane: deploy from one Compose file
 
-In Arcane, create a project named `panelbook` and paste the contents of [`compose.pull.yaml`](compose.pull.yaml) as its Compose configuration. Set `PANELBOOK_BIND_IP` in Arcane's environment editor if you want to bind TCP 8765 to a particular VM interface; without it, Docker listens on all IPv4 interfaces. Choose **Deploy**. Arcane pulls `ghcr.io/chasemsutton/panelbook:0.5.0.1`; no Dockerfile, source files, or separate image host are needed. Keep the `panelbook_data` volume when redeploying. To update later, change the image tag in the Compose file to the next published version and redeploy.
+In Arcane, create a project named `panelbook` and paste the contents of [`compose.pull.yaml`](compose.pull.yaml) as its Compose configuration. Set `PANELBOOK_BIND_IP` in Arcane's environment editor if you want to bind TCP 8765 to a particular VM interface; without it, Docker listens on all IPv4 interfaces. Choose **Deploy**. Arcane pulls `ghcr.io/chasemsutton/panelbook:latest`; no Dockerfile, source files, or separate image host are needed. Keep the `panelbook_data` volume when redeploying. To update later, redeploy the project. Compose pulls the current `latest` image each time; running containers do not update themselves. For a fixed version, replace `latest` with the release number and remove `pull_policy: always`.
 
 Allow TCP 8765 only from your NGINX machine with the VM or Proxmox firewall. Access Panelbook through the HTTPS domain on NGINX, including from the LAN. The direct VM HTTP address does not support hosted login because the app uses `Secure` cookies. The NGINX configuration and LAN DNS steps are below.
 

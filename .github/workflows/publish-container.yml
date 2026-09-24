@@ -10,6 +10,10 @@ on:
         description: 'Released version without the v prefix'
         required: true
         default: '0.5.0.1'
+      publish_latest:
+        description: 'Also update the latest tag (use only for the newest release)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,6 +30,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+          PUBLISH_LATEST: ${{ github.event_name == 'push' || inputs.publish_latest || false }}
         run: |
           set -euo pipefail
           version="${RELEASE_VERSION#v}"
@@ -40,3 +45,8 @@ jobs:
           done
           python -c 'import json,sys; actual=json.load(open("/tmp/panelbook-status.json"))["version"]; assert actual==sys.argv[1], (actual,sys.argv[1])' "$version"
           docker push "$image"
+          if [ "$PUBLISH_LATEST" = true ]; then
+            latest="ghcr.io/${GITHUB_REPOSITORY,,}:latest"
+            docker tag "$image" "$latest"
+            docker push "$latest"
+          fi
