@@ -24,7 +24,7 @@ SERVER_FILES = {
     "README-HOSTING.md": ROOT / "README-HOSTING.md",
     "Dockerfile": ROOT / "Dockerfile",
     ".dockerignore": ROOT / ".dockerignore",
-    "docker-compose.yml": ROOT / "docker-compose.yml",
+    "compose.yaml": ROOT / "compose.yaml",
     ".env.example": ROOT / ".env.example",
     "nginx/panelbook-site.conf.example": ROOT / "nginx" / "panelbook-site.conf.example",
     "program/server.py": ROOT / "program" / "server.py",

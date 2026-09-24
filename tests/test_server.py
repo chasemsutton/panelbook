@@ -49,13 +49,13 @@ class Client:
 class ServerTests(unittest.TestCase):
     def test_update_uses_single_portable_asset(self):
         releases = [
-            {"tag_name": "v0.4.2", "assets": [{"name": "Panelbook-Server-v0.4.2.zip", "digest": "sha256:" + "a" * 64}]},
-            {"tag_name": "v0.4.1", "assets": [{"name": "Panelbook-Portable-v0.4.1.zip", "digest": "sha256:" + "b" * 64,
+            {"tag_name": "v0.4.3", "assets": [{"name": "Panelbook-Server-v0.4.3.zip", "digest": "sha256:" + "a" * 64}]},
+            {"tag_name": "v0.4.2", "assets": [{"name": "Panelbook-Portable-v0.4.2.zip", "digest": "sha256:" + "b" * 64,
                                                   "browser_download_url": "https://example.test/release.zip"}]},
         ]
         with patch("program.server.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(releases).encode())):
             release = available_release()
-        self.assertEqual(release["version"], "v0.4.1")
+        self.assertEqual(release["version"], "v0.4.2")
         self.assertEqual(release["digest"], "b" * 64)
 
     @unittest.skipUnless(os.name == "nt", "Windows process flags are required")
@@ -65,12 +65,12 @@ class ServerTests(unittest.TestCase):
         code, _ = local.request("/api/setup/local", "POST", {})
         self.assertEqual(code, 201)
         local.status()
-        release = {"version": "v0.4.1", "url": "https://example.test/release.zip", "digest": "a" * 64}
+        release = {"version": "v0.4.2", "url": "https://example.test/release.zip", "digest": "a" * 64}
         with patch("program.server.available_release", return_value=release), \
              patch("program.server.subprocess.Popen") as popen, \
              patch("program.server.sys.frozen", True, create=True), \
              patch.object(self.server, "shutdown"):
-            code, _ = local.request("/api/update/install", "POST", {"version": "v0.4.1"})
+            code, _ = local.request("/api/update/install", "POST", {"version": "v0.4.2"})
         self.assertEqual(code, 200)
         command = popen.call_args.args[0]
         self.assertEqual(command[:5], ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])

@@ -1,6 +1,7 @@
 """Verify the packaged Windows CMD launcher starts Panelbook minimized."""
 
 import ctypes
+import http.cookiejar
 import json
 import os
 import socket
@@ -100,6 +101,33 @@ def main():
                 print("Windows CMD launcher smoke test passed; console is minimized.")
             else:
                 print("Windows CMD launcher started; window state is unavailable in this console host.")
+            base = f"http://127.0.0.1:{port}"
+            opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+
+            def request(path, payload):
+                data = json.dumps(payload).encode()
+                headers = {"Origin": base, "Content-Type": "application/json"}
+                if csrf:
+                    headers["X-Panelbook-CSRF"] = csrf
+                with opener.open(urllib.request.Request(base + path, data=data, headers=headers)) as response:
+                    return json.load(response)
+
+            csrf = None
+            request("/api/setup/local", {})
+            with opener.open(base + "/api/status") as response:
+                csrf = json.load(response)["csrf"]
+            request("/api/local/auto-close", {"enabled": True})
+            request("/api/local/presence", {"tabId": "a" * 24, "active": True})
+            request("/api/local/presence", {"tabId": "a" * 24, "active": False})
+            for _ in range(20):
+                if process_info(console_pid) is None:
+                    break
+                time.sleep(0.5)
+            else:
+                children = powershell(f'Get-CimInstance Win32_Process -Filter "ParentProcessId={console_pid}" | '
+                                      'Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress')
+                raise AssertionError(f"Launcher console stayed open after automatic shutdown; children: {children}")
+            print("Windows CMD launcher exited after the last tab closed.")
         finally:
             if console_pid:
                 subprocess.run(["taskkill", "/PID", str(console_pid), "/T", "/F"],

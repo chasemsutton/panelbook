@@ -1,4 +1,4 @@
-# Host Panelbook 0.4.0 on Proxmox
+# Host Panelbook 0.4.1 on Proxmox
 
 This package runs Panelbook in Docker Compose inside a Linux VM. It is intended for an NGINX reverse proxy on a separate machine and an HTTPS domain. The Windows portable app is a separate download. Both use the same database format.
 
@@ -7,6 +7,32 @@ This package runs Panelbook in Docker Compose inside a Linux VM. It is intended 
 Create a small Debian or Ubuntu VM in Proxmox with a stable private IP. Install Docker Engine and the Docker Compose plugin using [Docker's installation instructions](https://docs.docker.com/engine/install/). Extract this ZIP into a persistent directory on the VM, such as `/opt/panelbook`.
 
 Copy `.env.example` to `.env` and set `PANELBOOK_BIND_IP` to the VM's private IP. The Compose file publishes only TCP 8765 on that address. On the VM or Proxmox firewall, allow inbound TCP 8765 **only from the NGINX machine's private IP**. Do not forward port 8765 from your router. The HTTP connection from NGINX to Panelbook should stay on a trusted private network or VPN.
+
+The included `compose.yaml` is ready to use after setting `.env`. Its contents are:
+
+```yaml
+name: panelbook
+
+services:
+  panelbook:
+    build: .
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m
+    volumes:
+      - panelbook_data:/data
+    ports:
+      - "${PANELBOOK_BIND_IP:?Set PANELBOOK_BIND_IP in .env}:8765:8765"
+volumes:
+  panelbook_data:
+    name: panelbook_data
+```
 
 ## 2. Start Panelbook
 
@@ -40,7 +66,7 @@ Do not choose **Continue locally without a login** for the hosted installation; 
 
 ## Move an existing Windows workspace to the VM
 
-If the Windows workspace uses **Continue locally without a login**, first open it on Windows and choose **Create login**. A local-only account cannot sign in to the hosted server. Close the Windows server completely, then copy its `data/panelbook.sqlite3` to a directory named `old-data` beside `docker-compose.yml` on the VM. If `data/panelbook.sqlite3-wal` and `data/panelbook.sqlite3-shm` exist after shutdown, copy those too. Make `old-data` readable by the container user, and keep the original Windows folder as a backup.
+If the Windows workspace uses **Continue locally without a login**, first open it on Windows and choose **Create login**. A local-only account cannot sign in to the hosted server. Close the Windows server completely, then copy its `data/panelbook.sqlite3` to a directory named `old-data` beside `compose.yaml` on the VM. If `data/panelbook.sqlite3-wal` and `data/panelbook.sqlite3-shm` exist after shutdown, copy those too. Make `old-data` readable by the container user, and keep the original Windows folder as a backup.
 
 Stop the hosted server, copy the database with SQLite's backup API, and restart it:
 

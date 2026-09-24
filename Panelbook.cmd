@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 if not defined PANELBOOK_MINIMIZED (
   set "PANELBOOK_MINIMIZED=1"
-  start "" /min "%~f0" %*
+  start "" /min "%ComSpec%" /d /c ""%~f0" %*"
   exit /b
 )
 set "PANELBOOK_MINIMIZED="
