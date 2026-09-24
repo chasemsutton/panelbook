@@ -394,7 +394,7 @@
   function applyRole() {
     const role=home().role,readonly=role==="viewer";
     document.body.dataset.role=role;
-    el("shareHomeBtn").hidden=role!=="owner";
+    el("shareHomeBtn").hidden=role!=="owner" || currentUser?.isLocal;
     el("importBtn").disabled=readonly;
     for(const id of ["renameHomeBtn","addMainBtn","addSubBtn","convertPanelBtn","deletePanelBtn","addCircuitBtn","addPointBtn","panelName","spaceCount","breakerType","parentPanelSelect","feederCircuitSelect"])
       el(id).disabled=readonly;
@@ -635,11 +635,17 @@
     workbook.selectedHomeId=result.homes[0].id;workbook.selectedPanelId=result.homes[0].panels[0].id;
     await loadWorkspace();selected=1;renderAll();notify(`${count} home${count===1?"":"s"} imported.`,true);
   }
-  async function enterApp(status) {
+  function showAccountControls(status) {
     csrfToken=status.csrf;currentUser=status.user;currentVersion=status.version;
-    el("signedInAs").textContent=currentUser.username;
-    el("manageUsersBtn").hidden=!currentUser.isAdmin;
+    el("signedInAs").textContent=currentUser.isLocal?"Local only":currentUser.username;
+    el("convertLoginBtn").hidden=!currentUser.isLocal;
+    el("manageUsersBtn").hidden=!currentUser.isAdmin || currentUser.isLocal;
+    el("changePasswordBtn").hidden=currentUser.isLocal;
+    el("logoutBtn").hidden=currentUser.isLocal;
     el("updateActions").hidden=!status.canUpdate;
+  }
+  async function enterApp(status) {
+    showAccountControls(status);
     load();await loadWorkspace();
     if(!appEventsWired){wireEvents();appEventsWired=true;}
     document.body.classList.remove("locked");
@@ -651,6 +657,8 @@
     el("authUsername").parentElement.hidden=true;
     el("authPassword").parentElement.hidden=true;
     el("authSubmit").hidden=true;
+    el("localOnlyBtn").hidden=true;
+    el("loginChoiceLabel").hidden=true;
     try{el("legacyExportBtn").hidden=!localStorage.getItem(STORAGE_KEY);}catch{el("legacyExportBtn").hidden=true;}
   }
   async function refreshShareDialog() {
@@ -662,6 +670,15 @@
     el("shareMembers").innerHTML=members.members.map(member=>`<div><span>${escapeHTML(member.username)} · ${member.role}</span>${member.role==="owner"?"":`<button class="button" type="button" data-remove-user="${member.id}">Remove</button>`}</div>`).join("");
   }
   function wireAccountEvents() {
+    el("localOnlyBtn").addEventListener("click",async()=>{
+      el("authError").textContent="";el("localOnlyBtn").disabled=true;
+      try{
+        await api("/api/setup/local","POST",{});
+        await enterApp(await api("/api/status"));
+        history.replaceState(null,"",location.pathname);
+      }catch(error){el("authError").textContent=error.message;}
+      finally{el("localOnlyBtn").disabled=false;}
+    });
     el("authForm").addEventListener("submit",async event=>{
       event.preventDefault();el("authError").textContent="";el("authSubmit").disabled=true;
       try{
@@ -684,6 +701,17 @@
     });
     el("logoutBtn").addEventListener("click",async()=>{try{await api("/api/logout","POST",{});location.reload();}catch(error){notify(error.message);}});
     el("changePasswordBtn").addEventListener("click",()=>{el("currentPassword").value="";el("newPassword").value="";el("passwordDialog").showModal();});
+    el("convertLoginBtn").addEventListener("click",()=>{el("convertUsername").value="";el("convertPassword").value="";el("convertLoginDialog").showModal();el("convertUsername").focus();});
+    el("convertLoginCancelBtn").addEventListener("click",()=>el("convertLoginDialog").close());
+    el("convertLoginSaveBtn").addEventListener("click",async()=>{
+      const button=el("convertLoginSaveBtn");button.disabled=true;
+      try{
+        await api("/api/account/convert","POST",{username:el("convertUsername").value.trim(),password:el("convertPassword").value});
+        showAccountControls(await api("/api/status"));
+        el("convertLoginDialog").close();renderAll();notify("Login created. Your homes and panels are unchanged.",true);
+      }catch(error){alert(error.message);}
+      finally{button.disabled=false;}
+    });
     el("passwordCloseBtn").addEventListener("click",()=>el("passwordDialog").close());
     el("passwordSaveBtn").addEventListener("click",async()=>{try{await api("/api/account/password","POST",{currentPassword:el("currentPassword").value,newPassword:el("newPassword").value});el("passwordDialog").close();notify("Password changed.",true);}catch(error){alert(error.message);}});
     el("manageUsersBtn").addEventListener("click",()=>{el("newUsername").value="";el("newUserPassword").value="";el("usersDialog").showModal();});
@@ -756,9 +784,11 @@
       const status=await api("/api/status");
       if(status.needsSetup){
         el("authForm").dataset.setup="true";
-        el("authTitle").textContent="Create first account";
-        el("authDescription").textContent="This account can create users and share homes.";
-        el("authSubmit").textContent="Create account";
+        el("authTitle").textContent=status.canUseLocal?"Choose how to start":"Create first account";
+        el("authDescription").textContent=status.canUseLocal?"Use Panelbook on this machine without a login, or create a login for accounts and sharing.":"This account can create users and share homes.";
+        el("authSubmit").textContent=status.canUseLocal?"Create login":"Create account";
+        el("localOnlyBtn").hidden=!status.canUseLocal;
+        el("loginChoiceLabel").hidden=!status.canUseLocal;
         el("setupTokenField").hidden=false;
         const token=/^#setup=(.+)$/.exec(location.hash)?.[1];
         if(token)el("setupToken").value=decodeURIComponent(token);

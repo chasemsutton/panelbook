@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import subprocess
@@ -21,7 +22,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 ROOT = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 PROGRAM_LAYOUT = ROOT.name.lower() == "program"
 APP_ROOT = ROOT.parent if PROGRAM_LAYOUT else ROOT
@@ -196,7 +197,8 @@ def initialize_database(path):
         db.executescript("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                password_hash TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0
+                password_hash TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0,
+                is_local INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS sessions (
                 token_hash TEXT PRIMARY KEY, csrf TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -213,6 +215,8 @@ def initialize_database(path):
                 PRIMARY KEY(home_id,user_id)
             );
         """)
+        if "is_local" not in {row["name"] for row in db.execute("PRAGMA table_info(users)")}:
+            db.execute("ALTER TABLE users ADD COLUMN is_local INTEGER NOT NULL DEFAULT 0")
 
 
 def create_home(db, user_id, name="Home", panels=None):
@@ -285,9 +289,22 @@ class PanelbookHandler(BaseHTTPRequestHandler):
         except (KeyError, ValueError):
             return None
         digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        return db.execute("""SELECT s.token_hash,s.csrf,s.expires_at,u.id,u.username,u.is_admin
+        user = db.execute("""SELECT s.token_hash,s.csrf,s.expires_at,u.id,u.username,u.is_admin,u.is_local
                              FROM sessions s JOIN users u ON u.id=s.user_id
                              WHERE s.token_hash=? AND s.expires_at>?""", (digest, int(time.time()))).fetchone()
+        if user is not None and user["is_local"] and not self.is_local_request():
+            return None
+        return user
+
+    def is_local_request(self):
+        if not self.server.local_mode:
+            return False
+        try:
+            address = ipaddress.ip_address(self.client_address[0])
+            host = urlsplit("http://" + self.headers.get("Host", "")).hostname
+            return address.is_loopback and host in ("127.0.0.1", "localhost", "::1")
+        except ValueError:
+            return False
 
     def require_user(self, db, mutate=False):
         user = self.session(db)
@@ -377,10 +394,21 @@ class PanelbookHandler(BaseHTTPRequestHandler):
             if path == "/api/status":
                 user = self.session(db)
                 needs_setup = db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+                cookie = None
+                if user is None and self.is_local_request():
+                    local_user = db.execute("SELECT id FROM users WHERE is_local=1").fetchone()
+                    if local_user:
+                        token = self.create_session(db, local_user["id"])
+                        db.commit()
+                        cookie = self.session_cookie(token)
+                        user = db.execute("""SELECT s.token_hash,s.csrf,s.expires_at,u.id,u.username,u.is_admin,u.is_local
+                            FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?""",
+                            (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
                 self.json_response({"version": VERSION, "needsSetup": needs_setup, "localMode": self.server.local_mode,
+                                    "canUseLocal": bool(needs_setup and self.is_local_request()),
                                     "canUpdate": bool(user and user["is_admin"] and self.server.local_mode and os.name == "nt" and getattr(sys, "frozen", False) and PROGRAM_LAYOUT),
-                                    "user": None if user is None else {"id": user["id"], "username": user["username"], "isAdmin": bool(user["is_admin"])},
-                                    "csrf": None if user is None else user["csrf"]})
+                                    "user": None if user is None else {"id": user["id"], "username": user["username"], "isAdmin": bool(user["is_admin"]), "isLocal": bool(user["is_local"])},
+                                    "csrf": None if user is None else user["csrf"]}, cookie=cookie)
                 return
             user = self.require_user(db)
             if path == "/api/workspace":
@@ -421,6 +449,19 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 self.server.setup_token = ""
                 self.json_response({"ok": True}, 201, self.session_cookie(token))
                 return
+            if path == "/api/setup/local":
+                if not self.is_local_request():
+                    raise ApiError(403, "Local-only access is available only on this machine.")
+                db.execute("BEGIN IMMEDIATE")
+                if db.execute("SELECT COUNT(*) FROM users").fetchone()[0]:
+                    raise ApiError(409, "Initial setup is complete.")
+                cursor = db.execute("INSERT INTO users(username,password_hash,is_admin,is_local) VALUES('Local','',1,1)")
+                create_home(db, cursor.lastrowid)
+                token = self.create_session(db, cursor.lastrowid)
+                db.commit()
+                self.server.setup_token = ""
+                self.json_response({"ok": True}, 201, self.session_cookie(token))
+                return
             if path == "/api/login":
                 username = str(data.get("username", ""))
                 password = str(data.get("password", ""))
@@ -442,7 +483,23 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 self.json_response({"ok": True}, cookie=self.session_cookie(token))
                 return
             user = self.require_user(db, mutate=True)
+            if path == "/api/account/convert":
+                if not user["is_local"] or not self.is_local_request():
+                    raise ApiError(403, "Only a local-only workspace can be converted here.")
+                username = self.valid_username(data.get("username"))
+                new_hash = password_hash(data.get("password"))
+                try:
+                    db.execute("UPDATE users SET username=?,password_hash=?,is_local=0 WHERE id=?",
+                               (username, new_hash, user["id"]))
+                except sqlite3.IntegrityError:
+                    raise ApiError(409, "That username is already in use.")
+                db.execute("DELETE FROM sessions WHERE user_id=? AND token_hash<>?", (user["id"], user["token_hash"]))
+                db.commit()
+                self.json_response({"ok": True})
+                return
             if path == "/api/account/password":
+                if user["is_local"]:
+                    raise ApiError(409, "Create a login before changing the password.")
                 row = db.execute("SELECT password_hash FROM users WHERE id=?", (user["id"],)).fetchone()
                 if not password_matches(data.get("currentPassword"), row["password_hash"]):
                     raise ApiError(403, "Current password is incorrect.")
@@ -468,6 +525,8 @@ class PanelbookHandler(BaseHTTPRequestHandler):
             if path == "/api/users":
                 if not user["is_admin"]:
                     raise ApiError(403, "Only an administrator can create users.")
+                if user["is_local"]:
+                    raise ApiError(409, "Create a login before adding users.")
                 username = self.valid_username(data.get("username"))
                 try:
                     cursor = db.execute("INSERT INTO users(username,password_hash) VALUES(?,?)", (username, password_hash(data.get("password"))))

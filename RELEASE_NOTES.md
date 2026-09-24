@@ -1,5 +1,7 @@
-# Panelbook 0.3.0
+# Panelbook 0.3.1
 
-This is a breaking Windows update. Version 0.2.0 expects the old flat ZIP, and 0.2.1 still uses the unreliable restart path. Close the old app, extract `Panelbook-Portable-v0.3.0.zip` into a new folder, and move your existing `data/` folder beside the new `Panelbook.cmd`. Keep a backup of `data/` until you confirm your accounts and homes appear.
+When opening Panelbook on the same machine for the first time, choose **Continue locally without a login** to start without a username or password. Local-only workspaces reopen automatically from the local address and cannot be used from another machine.
 
-Future portable updates use one ZIP layout. The updater now waits for the old executable to release its file lock, checks that the new server starts, and reloads the existing browser tab. If installation or startup fails, it restores the previous files and records details in `data/updater.log`.
+Use **Create login** in the app whenever you want a username and password. Conversion keeps your existing homes and panels, then enables sign-in, user management, and sharing. Existing 0.3.0 accounts continue to work.
+
+Windows portable users can install this release with **Check for updates**. Versions 0.2.0 and 0.2.1 still require the manual migration described in README.md.

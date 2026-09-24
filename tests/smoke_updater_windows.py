@@ -1,5 +1,6 @@
 """Run after packaging to exercise the Windows updater with a local release ZIP."""
 
+import argparse
 import functools
 import hashlib
 import http.server
@@ -23,7 +24,6 @@ sys.path.insert(0, str(ROOT))
 from program.server import VERSION
 
 ZIP = ROOT / "dist" / f"v{VERSION}" / f"Panelbook-Portable-v{VERSION}.zip"
-HELPER = ROOT / "program" / "update-portable.ps1"
 
 
 def free_port():
@@ -43,17 +43,22 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--from-zip", type=Path, default=ZIP, help="Installed version to update")
+    args = parser.parse_args()
     if os.name != "nt":
         raise SystemExit("This smoke test runs on Windows.")
     if not ZIP.is_file():
         raise SystemExit(f"Build and package {ZIP} first.")
+    if not args.from_zip.is_file():
+        raise SystemExit(f"The installed release is missing: {args.from_zip}")
     with tempfile.TemporaryDirectory(prefix="panelbook updater test ") as scratch_name:
         scratch = Path(scratch_name)
         app = scratch / "app"
         data = app / "data with spaces"
         data.mkdir(parents=True)
         (data / "marker.txt").write_text("keep this data", encoding="utf-8")
-        with ZipFile(ZIP) as archive:
+        with ZipFile(args.from_zip) as archive:
             archive.extractall(app)
         payload = scratch / "payload.zip"
         shutil.copy2(ZIP, payload)
@@ -74,14 +79,15 @@ def main():
             )
             for _ in range(60):
                 try:
-                    if status(port)["version"] == VERSION:
+                    initial_version = status(port)["version"]
+                    if initial_version:
                         break
                 except Exception:
                     time.sleep(0.25)
             else:
                 raise AssertionError("The initial app did not start.")
             helper = subprocess.Popen(
-                ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(HELPER),
+                ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(app / "program" / "update-portable.ps1"),
                  "-AppFolder", str(app), "-ServerPid", str(old.pid),
                  "-DownloadUrl", f"http://127.0.0.1:{http_server.server_port}/payload.zip",
                  "-ExpectedSha256", hashlib.sha256(payload.read_bytes()).hexdigest(),
@@ -101,9 +107,17 @@ def main():
                 new_pid = int(found.group(1))
             assert helper.returncode == 0, (stdout, stderr, log)
             assert f"Panelbook v{VERSION} is ready." in log, (stdout, stderr, log)
-            assert status(port)["version"] == VERSION
+            updated = status(port)
+            assert updated["version"] == VERSION
+            assert updated["canUseLocal"]
+            base = f"http://127.0.0.1:{port}"
+            request = urllib.request.Request(base + "/api/setup/local", data=b"{}", method="POST",
+                                             headers={"Origin": base, "Content-Type": "application/json"})
+            with urllib.request.urlopen(request) as response:
+                assert response.status == 201
+            assert status(port)["user"]["isLocal"]
             assert (data / "marker.txt").read_text(encoding="utf-8") == "keep this data"
-            print("Windows updater smoke test passed; app restarted and data survived.")
+            print(f"Windows updater smoke test passed: {initial_version} to {VERSION}; local setup and data survived.")
         finally:
             if old and old.poll() is None:
                 subprocess.run(["taskkill", "/PID", str(old.pid), "/T", "/F"],
