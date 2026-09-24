@@ -22,8 +22,30 @@ The included `compose.yaml` is ready to use after setting `.env`. Its contents a
 name: panelbook
 
 services:
+  prepare-data:
+    build: .
+    user: "0:0"
+    command: ["sh", "-c", "chown -R panelbook:panelbook /data"]
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    healthcheck:
+      disable: true
+    volumes:
+      - /var/panelbook/data:/data
+
   panelbook:
     build: .
+    depends_on:
+      prepare-data:
+        condition: service_completed_successfully
     init: true
     restart: unless-stopped
     read_only: true
@@ -46,12 +68,7 @@ From the extracted directory, run:
 ```sh
 cp .env.example .env
 # Edit .env to use this VM's private IP before continuing.
-docker compose build
-sudo mkdir -p /var/panelbook/data
-uid=$(docker compose run --rm --no-deps --entrypoint id panelbook -u)
-gid=$(docker compose run --rm --no-deps --entrypoint id panelbook -g)
-sudo chown "$uid:$gid" /var/panelbook/data
-docker compose up -d
+docker compose up -d --build
 docker compose ps
 ```
 

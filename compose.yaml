@@ -1,8 +1,30 @@
 name: panelbook
 
 services:
+  prepare-data:
+    build: .
+    user: "0:0"
+    command: ["sh", "-c", "chown -R panelbook:panelbook /data"]
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    healthcheck:
+      disable: true
+    volumes:
+      - /var/panelbook/data:/data
+
   panelbook:
     build: .
+    depends_on:
+      prepare-data:
+        condition: service_completed_successfully
     init: true
     restart: unless-stopped
     read_only: true
