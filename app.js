@@ -1,13 +1,7 @@
 (() => {
   "use strict";
   const STORAGE_KEY = "panelbook-workspace-v4";
-  const PREVIOUS_KEY = "panelbook-directory-v3";
   const SORT_KEY = "panelbook-sort-preference-v1";
-  const CHANNEL_KEY = "panelbook-update-channel-v1";
-  const UPDATE_CHECK_KEY = "panelbook-last-update-check-v1";
-  const APP_VERSION = "0.1.4";
-  const RELEASES_URL = "https://api.github.com/repos/chasemsutton/panelbook/releases?per_page=30";
-  const UPDATE_FILES = ["styles.css","app.js","README.md","Panelbook-Setup.cmd","update-panelbook.ps1","release.json","panelbook.html"];
   const SORT_FIELDS = {circuits:["assignment","name","voltage","amps","gauge","labelMode"],points:["circuitId","name","location","id"]};
   const GAUGES = {"14":15,"12":20,"10":30,"8":40,"6":55,"4":70,"2":95,"1/0":125};
   const el = id => document.getElementById(id);
@@ -22,161 +16,67 @@
   let scopeMode = "print";
   let pendingPanelImport = null;
   let availableUpdate = null;
-  let updateRequestId = 0;
-  let updateFolder = null;
+  let csrfToken = null;
+  let currentUser = null;
+  let savedHomes = new Map();
+  let saveQueue = Promise.resolve();
+  let saveBlocked = false;
+  let appEventsWired = false;
 
-  function updateFolderStore(mode, callback) {
-    return new Promise((resolve,reject)=>{
-      if(!window.indexedDB){resolve(null);return;}
-      const request=indexedDB.open("panelbook-update-folder",1);
-      request.onupgradeneeded=()=>request.result.createObjectStore("settings");
-      request.onerror=()=>reject(request.error);
-      request.onsuccess=()=>{
-        const db=request.result,transaction=db.transaction("settings",mode);
-        const item=callback(transaction.objectStore("settings"));
-        item.onsuccess=()=>resolve(item.result ?? null);
-        item.onerror=()=>reject(item.error);
-        transaction.oncomplete=()=>db.close();
-        transaction.onabort=()=>db.close();
-      };
-    });
+  async function api(path,method="GET",data) {
+    const options={method,credentials:"same-origin",headers:{}};
+    if(data!==undefined){options.headers["Content-Type"]="application/json";options.body=JSON.stringify(data);}
+    if(method!=="GET" && csrfToken)options.headers["X-Panelbook-CSRF"]=csrfToken;
+    const response=await fetch(path,options);
+    const result=await response.json();
+    if(!response.ok){const error=Error(result.error||`Request failed (${response.status}).`);error.status=response.status;throw error;}
+    return result;
   }
-  const savedUpdateFolder=()=>updateFolderStore("readonly",store=>store.get("folder"));
-  const rememberUpdateFolder=folder=>updateFolderStore("readwrite",store=>store.put(folder,"folder"));
 
-  function versionParts(value) {
-    const match=/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(value);
-    return match ? [Number(match[1]),Number(match[2]),Number(match[3]),match[4]||""] : null;
+  function homeSnapshot(h) { return JSON.stringify({name:h.name,panels:h.panels}); }
+  function allocatePanelId() {
+    let id;
+    do {const bytes=crypto.getRandomValues(new Uint8Array(6));id=bytes.reduce((value,byte)=>value*256+byte,0)+1;}
+    while(workbook.homes.some(h=>h.panels.some(p=>p.id===id)));
+    workbook.nextPanelId=Math.max(workbook.nextPanelId,id+1);
+    return id;
   }
-  function compareVersions(a,b) {
-    const left=versionParts(a),right=versionParts(b);
-    if(!left||!right)return 0;
-    for(let i=0;i<3;i++)if(left[i]!==right[i])return Math.sign(left[i]-right[i]);
-    if(!left[3]||!right[3])return left[3]?-1:right[3]?1:0;
-    const x=left[3].split("."),y=right[3].split(".");
-    for(let i=0;i<Math.max(x.length,y.length);i++){
-      if(x[i]===undefined||y[i]===undefined)return x[i]===undefined?-1:1;
-      if(x[i]===y[i])continue;
-      const xn=/^\d+$/.test(x[i]),yn=/^\d+$/.test(y[i]);
-      return xn&&yn ? Math.sign(Number(x[i])-Number(y[i])) : xn?-1:yn?1:x[i]<y[i]?-1:1;
-    }
-    return 0;
+
+  async function loadWorkspace() {
+    const response=await api("/api/workspace");
+    const homes=response.homes;
+    if(!homes.length)throw Error("No homes are available for this account.");
+    const selectedHome=homes.find(h=>h.id===workbook.selectedHomeId)||homes[0];
+    const selectedPanel=selectedHome.panels.find(p=>p.id===workbook.selectedPanelId)||selectedHome.panels[0];
+    workbook={version:4,homes,nextHomeId:Math.max(...homes.map(h=>h.id))+1,nextPanelId:Math.max(...homes.flatMap(h=>h.panels.map(p=>p.id)))+1,selectedHomeId:selectedHome.id,selectedPanelId:selectedPanel.id};
+    state=selectedPanel;
+    savedHomes=new Map(homes.map(h=>[h.id,homeSnapshot(h)]));
+    saveBlocked=false;
   }
-  function setUpdateMessage(message,hint="") {
-    el("updateMessage").textContent=message;
-    el("updateHint").textContent=hint;
-    el("updateHint").hidden=!hint;
-  }
-  async function getReleaseText(tag,file) {
-    const url=`https://raw.githubusercontent.com/chasemsutton/panelbook/${encodeURIComponent(tag)}/${file}`;
-    const response=await fetch(url,{cache:"no-store"});
-    if(!response.ok)throw Error(`Could not download ${file} (${response.status}).`);
-    return response.text();
-  }
-  async function sha256(text) {
-    const bytes=new TextEncoder().encode(text);
-    const digest=await crypto.subtle.digest("SHA-256",bytes);
-    return Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,"0")).join("");
-  }
-  async function verifiedFiles(release,manifest) {
-    const contents=new Map();
-    for(const file of UPDATE_FILES){
-      const body=file==="release.json"?JSON.stringify(manifest,null,2)+"\n":await getReleaseText(release.tag_name,file);
-      if(file!=="release.json" && await sha256(body)!==manifest.files[file])throw Error(`${file} did not pass the release integrity check.`);
-      contents.set(file,body);
-    }
-    return contents;
-  }
-  async function checkUpdates(silent=false) {
-    const request=++updateRequestId;
-    availableUpdate=null;
-    el("updateInstallBtn").hidden=true;el("updateSetupBtn").hidden=true;el("updateDownloadBtn").hidden=true;
-    el("updateTitle").textContent=`Panelbook ${APP_VERSION} · updates`;
-    if(!silent){setUpdateMessage(`Checking ${el("updateChannel").value} releases…`);el("updateDialog").showModal();}
+
+  async function checkPortableUpdate() {
+    el("updateMessage").textContent="Checking for updates…";
+    el("updateInstallBtn").hidden=true;
+    el("updateDialog").showModal();
     try {
-      const response=await fetch(RELEASES_URL,{headers:{Accept:"application/vnd.github+json"},cache:"no-store"});
-      if(!response.ok)throw Error(`GitHub returned ${response.status}.`);
-      const channel=el("updateChannel").value;
-      const releases=(await response.json()).filter(r=>!r.draft && versionParts(r.tag_name) && (channel==="beta"||!r.prerelease));
-      releases.sort((a,b)=>compareVersions(b.tag_name,a.tag_name));
-      if(request!==updateRequestId)return;
-      try{localStorage.setItem(UPDATE_CHECK_KEY,String(Date.now()));}catch{}
-      const release=releases[0];
-      if(!release){if(!silent)setUpdateMessage(`No ${channel} release is available yet.`);return;}
-      if(compareVersions(release.tag_name,APP_VERSION)<=0){if(!silent)setUpdateMessage(`You’re up to date on the ${channel} channel (version ${APP_VERSION}).`);return;}
-      const asset=release.assets?.find(a=>a.name===`panelbook-${release.tag_name}.zip`);
-      const setupAsset=release.assets?.find(a=>a.name===`Panelbook-Setup-${release.tag_name}.cmd`);
-      let manifest=null;
-      try {
-        manifest=JSON.parse(await getReleaseText(release.tag_name,"release.json"));
-        if(manifest.version!==release.tag_name || !UPDATE_FILES.filter(f=>f!=="release.json").every(f=>/^[a-f0-9]{64}$/.test(manifest.files?.[f])))throw Error("Invalid release manifest.");
-      } catch { manifest=null; /* Keep the release download available when direct installation is unavailable. */ }
-      if(request!==updateRequestId)return;
-      const browserInstall=!!(manifest && typeof window.showDirectoryPicker==="function" && window.crypto?.subtle);
-      const onWindows=/Win/i.test(navigator.platform);
-      const windowsInstall=!!(manifest && onWindows);
-      availableUpdate={release,asset,setupAsset,manifest,browserInstall,windowsInstall};
-      if(silent)el("updateDialog").showModal();
-      setUpdateMessage(`Version ${release.tag_name.replace(/^v/,"")} is available (${release.prerelease?"beta":"stable"}).`,
-        browserInstall ? "Install update replaces app files in the folder you approve. Your saved panels stay in this browser." : windowsInstall ? "Install update opens the Windows updater. If it has not been set up yet, download and run the one-time setup first. Choose the folder containing this panelbook.html file." : onWindows&&setupAsset ? "Run the Windows updater setup to install this release without replacing files yourself." : "This browser cannot replace local files. Use a browser with folder access or the Windows updater.");
-      el("updateInstallBtn").hidden=!(browserInstall||windowsInstall);
-      el("updateSetupBtn").hidden=!(onWindows&&setupAsset);
-      el("updateDownloadBtn").hidden=!asset||browserInstall||windowsInstall||(onWindows&&setupAsset);
-    } catch(error) {if(request===updateRequestId&&!silent)setUpdateMessage(`Could not check updates: ${error.message}`,"Connect to the internet and try again. Panelbook itself still works offline.");}
+      const result=await api("/api/update/check");
+      availableUpdate=result.release;
+      el("updateMessage").textContent=result.release ? `Version ${result.release.version.replace(/^v/,"")} is ready to install.` : "Panelbook is up to date.";
+      el("updateInstallBtn").hidden=!result.release;
+    } catch(error) { el("updateMessage").textContent=error.message; }
   }
-  async function installUpdate() {
-    const current=availableUpdate;
-    if(!current?.manifest)return;
-    if(!current.browserInstall){
-      if(!current.windowsInstall)return;
-      location.href=`panelbook-update:${el("updateChannel").value}`;
-      setUpdateMessage("Opening the Windows updater…","If it does not open, click Set up Windows updater and run the downloaded file once.");
-      return;
-    }
-    const install=el("updateInstallBtn");install.disabled=true;el("updateCancelBtn").disabled=true;
+  async function installPortableUpdate() {
+    if(!availableUpdate)return;
+    el("updateInstallBtn").disabled=true;
+    el("updateMessage").textContent="Finishing any pending saves…";
     try {
-      // A picker or permission prompt must happen before the first await that downloads files.
-      let directory=updateFolder;
-      if(directory){
-        if(await directory.requestPermission({mode:"readwrite"})!=="granted"){
-          updateFolder=null;
-          throw Error("Folder access was denied. Click Install update again to choose a folder.");
-        }
-      }
-      if(!directory){
-        directory=await window.showDirectoryPicker({mode:"readwrite"});
-        await directory.getFileHandle("panelbook.html");
-        updateFolder=directory;
-        try{await rememberUpdateFolder(directory);}catch{}
-      }
-      setUpdateMessage("Downloading and checking the release files…");
-      const contents=await verifiedFiles(current.release,current.manifest);
-      await directory.getFileHandle("panelbook.html");
-      const originals=new Map(),written=[];
-      for(const name of UPDATE_FILES){
-        try{const handle=await directory.getFileHandle(name);originals.set(name,await (await handle.getFile()).text());}
-        catch(error){if(error.name==="NotFoundError" && (name==="Panelbook-Setup.cmd"||name==="update-panelbook.ps1"))originals.set(name,null);else throw error;}
-      }
-      try {
-        for(const name of UPDATE_FILES){
-          const handle=await directory.getFileHandle(name,{create:originals.get(name)===null});
-          written.push(name);
-          const writer=await handle.createWritable();
-          try {await writer.write(contents.get(name));await writer.close();}
-          catch(error){await writer.abort().catch(()=>{});throw error;}
-        }
-      } catch(error) {
-        let restored=true;
-        for(const name of written.reverse())try{if(originals.get(name)===null){await directory.removeEntry(name);continue;}const handle=await directory.getFileHandle(name);const writer=await handle.createWritable();await writer.write(originals.get(name));await writer.close();}catch{restored=false;}
-        throw Error(`${error.message}${restored?" Previous files were restored.":" Some files may need replacement from the release download."}`);
-      }
-      setUpdateMessage(`Installed ${current.release.tag_name}. Reloading…`);
-      location.reload();
-    } catch(error) {
-      if(error.name==="AbortError")setUpdateMessage("Update canceled. No files were changed.");
-      else setUpdateMessage(`Update failed: ${error.message}`,"On Windows, run the updater setup to install without replacing files yourself.");
-      install.disabled=false;el("updateCancelBtn").disabled=false;
+      await saveQueue;
+      if(saveBlocked || workbook.homes.some(h=>h.role!=="viewer" && homeSnapshot(h)!==savedHomes.get(h.id)))
+        throw Error("Some changes are not saved yet. Export a backup or reload before updating.");
+      el("updateMessage").textContent="Starting the installer. Panelbook will close and reopen in a moment…";
+      await api("/api/update/install","POST",{version:availableUpdate.version});
     }
+    catch(error) { el("updateMessage").textContent=error.message; el("updateInstallBtn").disabled=false; }
   }
 
   function isPosition(n, spaces = state.spaces) { return Number.isInteger(n) && n >= 1 && n <= spaces; }
@@ -219,8 +119,27 @@
   function isCompatible(voltage,assignment) { return !assignment || (voltage === 240) === assignment.includes("/"); }
   function danger(c) { return Boolean(c.gauge && Number.isFinite(c.amps) && c.amps > GAUGES[c.gauge]); }
   function save() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(workbook)); el("saveStatus").textContent = "Saved on this device"; }
-    catch { el("saveStatus").textContent = "Storage unavailable · export a backup"; }
+    queueHomeSave(home()?.id);
+  }
+  function queueHomeSave(homeId) {
+    const h=workbook.homes.find(item=>item.id===homeId);
+    if(!h || h.role==="viewer" || saveBlocked || homeSnapshot(h)===savedHomes.get(h.id))return;
+    el("saveStatus").textContent="Saving to data folder…";
+    saveQueue=saveQueue.then(async()=>{
+      const latest=workbook.homes.find(item=>item.id===h.id);
+      if(!latest || latest.role==="viewer")return;
+      const snapshot=homeSnapshot(latest);
+      if(snapshot===savedHomes.get(h.id))return;
+      const response=await api(`/api/homes/${h.id}`,"PUT",{name:latest.name,panels:latest.panels,revision:latest.revision});
+      latest.revision=response.revision;
+      savedHomes.set(h.id,snapshot);
+      el("saveStatus").textContent="Saved in data folder";
+      if(homeSnapshot(latest)!==snapshot)queueHomeSave(latest.id);
+    }).catch(error=>{
+      el("saveStatus").textContent="Not saved · export a backup";
+      if(error.status===409)saveBlocked=true;
+      notify(error.message);
+    });
   }
   function notify(message, ok = false) {
     const node = el("message"); node.textContent = message; node.classList.toggle("ok", ok);
@@ -291,13 +210,6 @@
   }
   function load() {
     try {
-      const raw=localStorage.getItem(STORAGE_KEY);
-      if(raw) workbook=assertImport(JSON.parse(raw));
-      else { const previous=localStorage.getItem(PREVIOUS_KEY); if(previous){const panel=assertPanel(JSON.parse(previous));Object.assign(workbook.homes[0].panels[0],panel);}}
-      state=workbook.homes.find(h=>h.id===workbook.selectedHomeId).panels.find(p=>p.id===workbook.selectedPanelId);
-    }
-    catch { workbook=initial();state=workbook.homes[0].panels[0];setTimeout(() => notify("Saved data could not be read. Import a backup if you have one."), 0); }
-    try {
       const raw=localStorage.getItem(SORT_KEY);
       if (raw) {
         const stored=JSON.parse(raw);
@@ -356,7 +268,7 @@
     sorts[table].dir=sorts[table].key === key ? -sorts[table].dir : 1;
     sorts[table].key=key;
     if (table === "circuits") renderRows(); else renderPointRows();
-    renderSortHeaders();
+    renderSortHeaders();applyRole();
     try { localStorage.setItem(SORT_KEY,JSON.stringify(sorts)); }
     catch { el("saveStatus").textContent="Storage unavailable · export a backup"; }
   }
@@ -458,7 +370,16 @@
   function renderAll() {
     el("panelName").value = state.name; el("spaceCount").value = String(state.spaces);
     el("convertPanelBtn").textContent=state.kind==="main"?"Make subpanel":"Make main panel";
-    renderNavigation();renderPanel(); renderTotals(); renderRows(); renderPointRows(); renderSortHeaders(); save();
+    renderNavigation();renderPanel(); renderTotals(); renderRows(); renderPointRows(); renderSortHeaders(); applyRole(); save();
+  }
+  function applyRole() {
+    const role=home().role,readonly=role==="viewer";
+    document.body.dataset.role=role;
+    el("shareHomeBtn").hidden=role!=="owner";
+    el("importBtn").disabled=readonly;
+    for(const id of ["renameHomeBtn","addMainBtn","addSubBtn","convertPanelBtn","deletePanelBtn","addCircuitBtn","addPointBtn","panelName","spaceCount","breakerType","parentPanelSelect","feederCircuitSelect"])
+      el(id).disabled=readonly;
+    for(const field of document.querySelectorAll("#circuitRows input,#circuitRows select,#circuitRows button,#pointRows input,#pointRows select,#pointRows textarea,#pointRows button"))field.disabled=readonly;
   }
   function convert(n,type) {
     const current = kind(n); if (current === type) return;
@@ -674,45 +595,96 @@
       for(const child of home().panels.filter(p=>p.parentPanelId===target.id))child.parentCircuitId=null;
       choosePanel(target.id);notify("Panel replaced. Child feeder links were cleared.",true);
     } else if(mode==="main"){
-      const panel={...makePanel(workbook.nextPanelId++,imported.name),...imported};
+      const panel={...makePanel(allocatePanelId(),imported.name),...imported};
       home().panels.push(panel);choosePanel(panel.id);notify("Panel added as a main panel.",true);
     } else if(mode==="sub"){
       const parent=panelById(Number(el("importParent").value));if(!parent)throw Error("Choose a source panel.");
       const feeder=chosenFeeder("importParent","importFeeder",null,imported.circuits);
-      const panel={...makePanel(workbook.nextPanelId++,imported.name,"sub",parent.id),...imported,parentCircuitId:feeder};
+      const panel={...makePanel(allocatePanelId(),imported.name,"sub",parent.id),...imported,parentCircuitId:feeder};
       home().panels.push(panel);choosePanel(panel.id);notify("Panel added as a subpanel.",true);
     } else throw Error("Choose an import option.");
   }
-  function importJSON(data) {
+  async function importJSON(data) {
     if(data?.scope==="panel" && data.version===4){
       showPanelImportDialog(assertPanel(data.panel));return;
     }
-    if(data?.scope==="home" && data.version===4){
-      const source=data.home;
-      if(!source || !Array.isArray(source.panels) || !source.panels.length)throw Error("Invalid home export.");
-      const checked=assertImport({version:4,homes:[source],nextHomeId:source.id+1,nextPanelId:Math.max(...source.panels.map(p=>p.id))+1,selectedHomeId:source.id,selectedPanelId:source.panels[0].id});
-      const restored=checked.homes[0],ids=new Map(restored.panels.map(p=>[p.id,workbook.nextPanelId++]));
-      const imported={id:workbook.nextHomeId++,name:restored.name,panels:restored.panels.map(p=>({...p,id:ids.get(p.id),parentPanelId:p.parentPanelId===null?null:ids.get(p.parentPanelId)}))};
-      workbook.homes.push(imported);workbook.selectedHomeId=imported.id;workbook.selectedPanelId=imported.panels[0].id;state=imported.panels[0];selected=1;renderAll();notify("Home added with its panels and feeder links.",true);return;
-    }
-    const next=assertImport(data?.scope==="everything"?data.workbook:data);
-    if(!confirm(`Replace all current homes and panels with the ${next.homes.length}-home import? Export a backup first if needed.`))return;
-    workbook=next;state=home().panels.find(p=>p.id===workbook.selectedPanelId);selected=1;renderAll();notify("All homes and panels imported.",true);
+    if(data?.version!==4 || !["home","everything"].includes(data.scope))throw Error("Import requires a Panelbook version 4 JSON export.");
+    const count=data.scope==="home"?1:data.workbook?.homes?.length;
+    if(!Number.isInteger(count) || count<1 || count>100)throw Error("Invalid home export.");
+    if(!confirm(`Add ${count} imported home${count===1?"":"s"} to your account? Existing homes will stay available.`))return;
+    const result=await api("/api/import","POST",data);
+    workbook.selectedHomeId=result.homes[0].id;workbook.selectedPanelId=result.homes[0].panels[0].id;
+    await loadWorkspace();selected=1;renderAll();notify(`${count} home${count===1?"":"s"} imported.`,true);
+  }
+  async function enterApp(status) {
+    csrfToken=status.csrf;currentUser=status.user;
+    el("signedInAs").textContent=currentUser.username;
+    el("manageUsersBtn").hidden=!currentUser.isAdmin;
+    el("updateActions").hidden=!status.canUpdate;
+    load();await loadWorkspace();
+    if(!appEventsWired){wireEvents();appEventsWired=true;}
+    document.body.classList.remove("locked");
+    renderAll();
+  }
+  function offerLegacyExport(message) {
+    el("authTitle").textContent="Start Panelbook";
+    el("authDescription").textContent=message;
+    el("authUsername").parentElement.hidden=true;
+    el("authPassword").parentElement.hidden=true;
+    el("authSubmit").hidden=true;
+    try{el("legacyExportBtn").hidden=!localStorage.getItem(STORAGE_KEY);}catch{el("legacyExportBtn").hidden=true;}
+  }
+  async function refreshShareDialog() {
+    const id=home().id;
+    const [users,members]=await Promise.all([api("/api/users"),api(`/api/homes/${id}/members`)]);
+    const owner=members.members.find(item=>item.role==="owner");
+    el("shareTitle").textContent=`Share ${home().name}`;
+    el("shareUser").innerHTML=users.users.filter(user=>user.id!==owner?.id).map(user=>`<option value="${user.id}">${escapeHTML(user.username)}</option>`).join("");
+    el("shareMembers").innerHTML=members.members.map(member=>`<div><span>${escapeHTML(member.username)} · ${member.role}</span>${member.role==="owner"?"":`<button class="button" type="button" data-remove-user="${member.id}">Remove</button>`}</div>`).join("");
+  }
+  function wireAccountEvents() {
+    el("authForm").addEventListener("submit",async event=>{
+      event.preventDefault();el("authError").textContent="";el("authSubmit").disabled=true;
+      try{
+        const setup=el("authForm").dataset.setup==="true";
+        const data={username:el("authUsername").value.trim(),password:el("authPassword").value};
+        if(setup)data.setupToken=el("setupToken").value.trim();
+        await api(setup?"/api/setup":"/api/login","POST",data);
+        await enterApp(await api("/api/status"));
+        history.replaceState(null,"",location.pathname);
+      }catch(error){el("authError").textContent=error.message;}
+      finally{el("authSubmit").disabled=false;}
+    });
+    el("legacyExportBtn").addEventListener("click",()=>{
+      try{
+        const workbook=JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if(!workbook || workbook.version!==4)throw Error("No version 4 data was found in this browser.");
+        const blob=new Blob([JSON.stringify({version:4,scope:"everything",workbook},null,2)],{type:"application/json"});
+        const url=URL.createObjectURL(blob),link=document.createElement("a");link.href=url;link.download="panelbook-legacy-export.json";link.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
+      }catch(error){el("authError").textContent=error.message;}
+    });
+    el("logoutBtn").addEventListener("click",async()=>{try{await api("/api/logout","POST",{});location.reload();}catch(error){notify(error.message);}});
+    el("changePasswordBtn").addEventListener("click",()=>{el("currentPassword").value="";el("newPassword").value="";el("passwordDialog").showModal();});
+    el("passwordCloseBtn").addEventListener("click",()=>el("passwordDialog").close());
+    el("passwordSaveBtn").addEventListener("click",async()=>{try{await api("/api/account/password","POST",{currentPassword:el("currentPassword").value,newPassword:el("newPassword").value});el("passwordDialog").close();notify("Password changed.",true);}catch(error){alert(error.message);}});
+    el("manageUsersBtn").addEventListener("click",()=>{el("newUsername").value="";el("newUserPassword").value="";el("usersDialog").showModal();});
+    el("usersCloseBtn").addEventListener("click",()=>el("usersDialog").close());
+    el("usersSaveBtn").addEventListener("click",async()=>{try{const result=await api("/api/users","POST",{username:el("newUsername").value.trim(),password:el("newUserPassword").value});el("usersDialog").close();notify(`User ${result.user.username} created. Share a home to grant access.`,true);}catch(error){alert(error.message);}});
+    el("shareHomeBtn").addEventListener("click",async()=>{try{await refreshShareDialog();el("shareDialog").showModal();}catch(error){notify(error.message);}});
+    el("shareCloseBtn").addEventListener("click",()=>el("shareDialog").close());
+    el("shareSaveBtn").addEventListener("click",async()=>{try{const userId=Number(el("shareUser").value);if(!userId)throw Error("Choose a user.");await api(`/api/homes/${home().id}/members/${userId}`,"PUT",{role:el("shareRole").value});await refreshShareDialog();notify("Home access updated.",true);}catch(error){alert(error.message);}});
+    el("shareMembers").addEventListener("click",async event=>{const button=event.target.closest("[data-remove-user]");if(!button)return;try{await api(`/api/homes/${home().id}/members/${button.dataset.removeUser}`,"DELETE",{});await refreshShareDialog();notify("Home access removed.",true);}catch(error){alert(error.message);}});
   }
   function wireEvents() {
-    el("updateChannel").addEventListener("change",e=>{try{localStorage.setItem(CHANNEL_KEY,e.target.value);}catch{};});
-    el("checkUpdatesBtn").addEventListener("click",()=>checkUpdates());
-    el("updateCancelBtn").addEventListener("click",()=>{updateRequestId++;el("updateDialog").close();});
-    el("updateDialog").addEventListener("cancel",e=>{if(el("updateInstallBtn").disabled)e.preventDefault();else updateRequestId++;});
-    el("updateDownloadBtn").addEventListener("click",()=>{if(!availableUpdate?.asset)return;const link=document.createElement("a");link.href=availableUpdate.asset.browser_download_url;link.rel="noopener noreferrer";link.click();});
-    el("updateSetupBtn").addEventListener("click",()=>{if(!availableUpdate?.setupAsset)return;const link=document.createElement("a");link.href=availableUpdate.setupAsset.browser_download_url;link.rel="noopener noreferrer";link.click();setUpdateMessage("Run the downloaded setup file once, then return to Panelbook.","Choose the folder containing this panelbook.html file. The setup installs the update and connects the in-app button to the Windows updater.");});
-    el("updateInstallBtn").addEventListener("click",installUpdate);
+    el("checkUpdatesBtn").addEventListener("click",checkPortableUpdate);
+    el("updateCancelBtn").addEventListener("click",()=>el("updateDialog").close());
+    el("updateInstallBtn").addEventListener("click",installPortableUpdate);
     el("homeSelect").addEventListener("change",e=>{const chosen=workbook.homes.find(h=>h.id===Number(e.target.value));if(!chosen)return;workbook.selectedHomeId=chosen.id;workbook.selectedPanelId=chosen.panels[0].id;state=chosen.panels[0];selected=1;renderAll();});
     el("renameHomeBtn").addEventListener("click",()=>{const name=prompt("Rename this home or location:",home().name);if(name===null)return;const clean=name.trim().slice(0,80);if(!clean){notify("Enter a home name.");return;}home().name=clean;renderAll();});
     el("panelNav").addEventListener("click",e=>{const button=e.target.closest("[data-open-panel]");if(button)choosePanel(Number(button.dataset.openPanel));});
     el("linkedPanels").addEventListener("click",e=>{const button=e.target.closest("[data-open-panel]");if(button)choosePanel(Number(button.dataset.openPanel));});
-    el("addHomeBtn").addEventListener("click",()=>{const name=prompt("Name this home or location:",`Home ${workbook.nextHomeId}`);if(name===null)return;const clean=name.trim().slice(0,80);if(!clean){notify("Enter a home name.");return;}const panel=makePanel(workbook.nextPanelId++,"Main panel"),h={id:workbook.nextHomeId++,name:clean,panels:[panel]};workbook.homes.push(h);workbook.selectedHomeId=h.id;workbook.selectedPanelId=panel.id;state=panel;selected=1;renderAll();});
-    el("addMainBtn").addEventListener("click",()=>{const name=prompt("Name this main panel:",`Main panel ${home().panels.filter(p=>p.kind==="main").length+1}`);if(name===null)return;const clean=name.trim().slice(0,80);if(!clean){notify("Enter a panel name.");return;}const p=makePanel(workbook.nextPanelId++,clean);home().panels.push(p);choosePanel(p.id);});
+    el("addHomeBtn").addEventListener("click",async()=>{const name=prompt("Name this home or location:",`Home ${workbook.nextHomeId}`);if(name===null)return;const clean=name.trim().slice(0,80);if(!clean){notify("Enter a home name.");return;}try{const {home:h}=await api("/api/homes","POST",{name:clean});workbook.homes.push(h);savedHomes.set(h.id,homeSnapshot(h));workbook.nextHomeId=Math.max(workbook.nextHomeId,h.id+1);workbook.selectedHomeId=h.id;workbook.selectedPanelId=h.panels[0].id;state=h.panels[0];selected=1;renderAll();}catch(error){notify(error.message);}});
+    el("addMainBtn").addEventListener("click",()=>{const name=prompt("Name this main panel:",`Main panel ${home().panels.filter(p=>p.kind==="main").length+1}`);if(name===null)return;const clean=name.trim().slice(0,80);if(!clean){notify("Enter a panel name.");return;}const p=makePanel(allocatePanelId(),clean);home().panels.push(p);choosePanel(p.id);});
     el("addSubBtn").addEventListener("click",()=>{
       el("newSubName").value="";el("newSubFeeder").innerHTML=feederOptions(state.id);
       if(el("newSubFeeder").options.length===1){notify("Add an unused 240 V circuit with a breaker and amp rating to this panel first.");return;}
@@ -721,7 +693,7 @@
     el("addSubDialog").addEventListener("close",()=>{if(el("addSubDialog").returnValue!=="confirm")return;try{
       const name=el("newSubName").value.trim();if(!name)throw Error("Enter a subpanel name.");
       const feeder=validateFeeder(state.id,el("newSubFeeder").value);
-      const panel=makePanel(workbook.nextPanelId++,name,"sub",state.id);panel.parentCircuitId=feeder.id;
+      const panel=makePanel(allocatePanelId(),name,"sub",state.id);panel.parentCircuitId=feeder.id;
       home().panels.push(panel);choosePanel(panel.id);notify("Subpanel added with the selected 240 V feeder.",true);
     }catch(error){notify(error.message);}});
     el("parentPanelSelect").addEventListener("change",e=>{const parent=panelById(Number(e.target.value));if(!parent || descendants(state.id).has(parent.id))return;state.parentPanelId=parent.id;state.parentCircuitId=null;renderAll();notify("Choose an unused 240 V feeder from the new source panel.");});
@@ -752,17 +724,27 @@
     el("exportBtn").addEventListener("click",()=>openScopeDialog("export"));
     el("scopeDialog").addEventListener("close",()=>{if(el("scopeDialog").returnValue!=="confirm")return;const scope=el("scopeChoices").querySelector('input[name="scopeOption"]:checked')?.value;if(!scope)return;if(scopeMode==="print")print(scope);else exportJSON(scope);});
     el("importBtn").addEventListener("click",()=>el("importFile").click());
-    el("importFile").addEventListener("change",async e=>{const file=e.target.files?.[0];e.target.value="";if(!file)return;if(file.size>20*1024*1024){notify("The JSON file exceeds 20 MB.");return;}try{importJSON(JSON.parse(await file.text()));}catch(error){notify(`Import failed: ${error.message}`);}});
+    el("importFile").addEventListener("change",async e=>{const file=e.target.files?.[0];e.target.value="";if(!file)return;if(file.size>20*1024*1024){notify("The JSON file exceeds 20 MB.");return;}try{await importJSON(JSON.parse(await file.text()));}catch(error){notify(`Import failed: ${error.message}`);}});
   }
-  function init() {
+  async function init() {
     for(let n=12;n<=42;n+=2){const option=document.createElement("option");option.value=n;option.textContent=`${n} spaces`;el("spaceCount").append(option);}
-    try {if(localStorage.getItem(CHANNEL_KEY)==="beta")el("updateChannel").value="beta";}catch{}
-    load();wireEvents();renderAll();
-    savedUpdateFolder().then(folder=>{if(!updateFolder)updateFolder=folder;}).catch(()=>{});
+    wireAccountEvents();
+    if(location.protocol==="file:"){
+      offerLegacyExport("Open Panelbook.exe or run the local launcher, then import your old JSON export. This file page can export data saved by this browser.");
+      return;
+    }
     try{
-      const last=Number(localStorage.getItem(UPDATE_CHECK_KEY))||0;
-      if(Date.now()-last>24*60*60*1000)checkUpdates(true);
-    }catch{checkUpdates(true);}
+      const status=await api("/api/status");
+      if(status.needsSetup){
+        el("authForm").dataset.setup="true";
+        el("authTitle").textContent="Create first account";
+        el("authDescription").textContent="This account can create users and share homes.";
+        el("authSubmit").textContent="Create account";
+        el("setupTokenField").hidden=false;
+        const token=/^#setup=(.+)$/.exec(location.hash)?.[1];
+        if(token)el("setupToken").value=decodeURIComponent(token);
+      }else if(status.user)await enterApp(status);
+    }catch(error){offerLegacyExport(`Could not reach the Panelbook server: ${error.message}. Start Panelbook.exe or the local launcher.`);}
   }
   init();
 })();

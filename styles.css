@@ -117,6 +117,14 @@ th button[data-direction="desc"]::after{content:"▼"}
 input::placeholder,textarea::placeholder{color:#aab8c6;opacity:1}
 .dialog-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:19px}
 #updateDialog .dialog-actions{flex-wrap:wrap}
+.locked > header,.locked > main,.locked > dialog,.locked > #printDirectory{display:none}
+.update-actions[hidden]{display:none}
+.auth-screen{min-height:100vh;display:grid;place-items:center;padding:24px;background:#e8eef3}
+.auth-card{width:min(420px,100%);display:grid;gap:14px;padding:30px;border-radius:16px;background:#fff;box-shadow:0 18px 60px #14263a24}
+.auth-card h1{margin:0}.auth-card p{margin:0;color:#64778a}.auth-card label{display:grid;gap:6px;font-size:13px;font-weight:700}.auth-card input{min-height:42px;padding:9px 11px;border:1px solid #c7d2dc;border-radius:8px;font:inherit}.auth-card [hidden]{display:none}.auth-card #authError{color:#aa3333;font-weight:700}
+body:not(.locked)>.auth-screen{display:none}.signed-in-as{font-size:12px;color:#dce8f5;white-space:nowrap}.share-members{display:grid;gap:7px;margin-top:14px}.share-members>div{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px}.share-members button{min-height:30px}
+body[data-role="viewer"] #renameHomeBtn,body[data-role="viewer"] #addMainBtn,body[data-role="viewer"] #addSubBtn,body[data-role="viewer"] #convertPanelBtn,body[data-role="viewer"] #deletePanelBtn,body[data-role="viewer"] #addCircuitBtn,body[data-role="viewer"] #addPointBtn,body[data-role="viewer"] .delete-btn{display:none}
+body[data-role="viewer"] #panelName,body[data-role="viewer"] #spaceCount,body[data-role="viewer"] #breakerType,body[data-role="viewer"] #parentPanelSelect,body[data-role="viewer"] #feederCircuitSelect,body[data-role="viewer"] #circuitRows input,body[data-role="viewer"] #circuitRows select,body[data-role="viewer"] #pointRows input,body[data-role="viewer"] #pointRows select,body[data-role="viewer"] #pointRows textarea{pointer-events:none;background:#f1f5f8}
 .dialog-warning{color:#a34033!important;margin:3px 0 9px!important}
 #importOverwriteFields[hidden],#importSubFields[hidden]{display:none}
 .panel-management{display:flex;gap:8px;flex-wrap:wrap;width:100%;border-top:1px solid #e9edf1;padding-top:12px}

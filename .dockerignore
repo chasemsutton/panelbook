@@ -1,0 +1,6 @@
+.git
+data
+dist
+build
+*.spec
+__pycache__

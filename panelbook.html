@@ -8,14 +8,16 @@
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
 </head>
-<body>
+<body class="locked">
+  <section id="authScreen" class="auth-screen"><form id="authForm" class="auth-card"><div class="eyebrow">PANELBOOK</div><h1 id="authTitle">Sign in</h1><p id="authDescription">Open your homes and panels.</p><label>Username<input id="authUsername" type="text" autocomplete="username" required maxlength="40"></label><label>Password<input id="authPassword" type="password" autocomplete="current-password" required></label><label id="setupTokenField" hidden>Setup code<input id="setupToken" type="text" autocomplete="off"></label><p id="authError" role="alert"></p><button id="authSubmit" class="button primary" type="submit">Sign in</button><button id="legacyExportBtn" class="button" type="button" hidden>Export data from this browser</button></form></section>
   <header class="topbar">
-    <div class="brand"><div class="brand-mark" aria-hidden="true">▥</div><div><strong>PANELBOOK</strong><span>Residential panel directory · v0.1.4</span></div></div>
+    <div class="brand"><div class="brand-mark" aria-hidden="true">▥</div><div><strong>PANELBOOK</strong><span>Residential panel directory · v0.2.0</span></div></div>
     <nav class="actions" aria-label="Document actions">
-      <div class="update-actions"><label for="updateChannel" class="sr-only">Update channel</label><select id="updateChannel" aria-label="Update channel"><option value="stable">Stable</option><option value="beta">Beta</option></select><button id="checkUpdatesBtn" class="button subtle" type="button">Check for updates</button></div>
+      <div id="updateActions" class="update-actions" hidden><button id="checkUpdatesBtn" class="button subtle" type="button">Check for updates</button></div>
       <button id="printDirectoryBtn" class="button subtle" type="button">Print / PDF</button>
       <button id="exportBtn" class="button subtle" type="button">Export JSON</button>
       <button id="importBtn" class="button primary" type="button">Import JSON</button>
+      <span id="signedInAs" class="signed-in-as"></span><button id="manageUsersBtn" class="button subtle" type="button" hidden>Users</button><button id="changePasswordBtn" class="button subtle" type="button">Password</button><button id="logoutBtn" class="button subtle" type="button">Sign out</button>
       <input id="importFile" type="file" accept="application/json,.json" hidden>
     </nav>
   </header>
@@ -23,13 +25,14 @@
   <main class="page">
     <section class="intro">
       <div><div class="eyebrow">YOUR ELECTRICAL DIRECTORY</div><h1>Every circuit, mapped.</h1><p>Map your panels, link outlets and switches to circuits, and print the panels you need.</p></div>
-      <div class="save-state"><span class="save-dot"></span><span id="saveStatus">Saved on this device</span></div>
+      <div class="save-state"><span class="save-dot"></span><span id="saveStatus">Saved in data folder</span></div>
     </section>
 
     <section class="locations card" aria-label="Homes and panels">
       <div class="location-controls">
         <label class="settings-field home-field">Home / location <select id="homeSelect"></select></label>
         <button id="renameHomeBtn" class="button" type="button">Rename home</button>
+        <button id="shareHomeBtn" class="button" type="button">Share home</button>
         <button id="addHomeBtn" class="button" type="button">+ Home</button>
         <button id="addMainBtn" class="button" type="button">+ Main panel</button>
         <button id="addSubBtn" class="button" type="button">+ Subpanel from here</button>
@@ -80,7 +83,10 @@
   <dialog id="addSubDialog" class="app-dialog" aria-labelledby="addSubTitle"><form method="dialog"><h2 id="addSubTitle">Add subpanel</h2><p>Choose its feeder yourself. It must be an unused, assigned 240 V circuit with an amp rating in this panel.</p><label class="dialog-field">Subpanel name<input id="newSubName" type="text" maxlength="80" required placeholder="e.g. Garage panel"></label><label class="dialog-field">Feeder circuit<select id="newSubFeeder" required></select></label><div class="dialog-actions"><button class="button" type="submit" value="cancel" formnovalidate>Cancel</button><button class="button primary" type="submit" value="confirm">Add subpanel</button></div></form></dialog>
   <dialog id="convertDialog" class="app-dialog" aria-labelledby="convertTitle"><form method="dialog"><h2 id="convertTitle">Make this a subpanel</h2><p>Choose an unused, assigned 240 V feeder with an amp rating at least as high as every circuit in this panel.</p><label class="dialog-field">Source panel<select id="convertParent"></select></label><label class="dialog-field">Feeder circuit<select id="convertFeeder" required></select></label><div class="dialog-actions"><button class="button" type="submit" value="cancel" formnovalidate>Cancel</button><button class="button primary" type="submit" value="confirm">Make subpanel</button></div></form></dialog>
   <dialog id="panelImportDialog" class="app-dialog" aria-labelledby="panelImportTitle"><form method="dialog"><h2 id="panelImportTitle">Import panel</h2><p>Choose where to put the imported panel.</p><fieldset class="dialog-choices" id="panelImportChoices"><label><input type="radio" name="panelImportMode" value="overwrite">Replace an existing panel</label><label><input type="radio" name="panelImportMode" value="main" checked>Add as a new main panel</label><label><input type="radio" name="panelImportMode" value="sub">Add as a new subpanel</label></fieldset><div id="importOverwriteFields"><label class="dialog-field">Panel to replace<select id="importTargetPanel"></select></label><p id="importImpact" class="dialog-warning"></p></div><div id="importSubFields"><label class="dialog-field">Source panel<select id="importParent"></select></label><label class="dialog-field">Feeder circuit<select id="importFeeder"></select></label></div><div class="dialog-actions"><button class="button" type="submit" value="cancel" formnovalidate>Cancel</button><button class="button primary" type="submit" value="confirm">Import panel</button></div></form></dialog>
-  <dialog id="updateDialog" class="app-dialog" aria-labelledby="updateTitle"><h2 id="updateTitle">Panelbook updates</h2><p id="updateMessage" role="status" aria-live="polite"></p><p id="updateHint"></p><div class="dialog-actions"><button id="updateCancelBtn" class="button" type="button">Cancel</button><button id="updateDownloadBtn" class="button" type="button" hidden>Download ZIP (manual)</button><button id="updateSetupBtn" class="button" type="button" hidden>Set up Windows updater</button><button id="updateInstallBtn" class="button primary" type="button" hidden>Install update</button></div></dialog>
+  <dialog id="updateDialog" class="app-dialog" aria-labelledby="updateTitle"><h2 id="updateTitle">Panelbook updates</h2><p id="updateMessage" role="status" aria-live="polite"></p><div class="dialog-actions"><button id="updateCancelBtn" class="button" type="button">Close</button><button id="updateInstallBtn" class="button primary" type="button" hidden>Install update</button></div></dialog>
+  <dialog id="shareDialog" class="app-dialog" aria-labelledby="shareTitle"><h2 id="shareTitle">Share home</h2><p>Editors can change panels. Viewers can read and export.</p><label class="dialog-field">User<select id="shareUser"></select></label><label class="dialog-field">Access<select id="shareRole"><option value="editor">Editor</option><option value="viewer">Viewer</option></select></label><div id="shareMembers" class="share-members"></div><div class="dialog-actions"><button id="shareCloseBtn" class="button" type="button">Close</button><button id="shareSaveBtn" class="button primary" type="button">Share</button></div></dialog>
+  <dialog id="usersDialog" class="app-dialog" aria-labelledby="usersTitle"><h2 id="usersTitle">Add user</h2><p>Create a login, then share a home with that user.</p><label class="dialog-field">Username<input id="newUsername" type="text" maxlength="40" autocomplete="off"></label><label class="dialog-field">Temporary password<input id="newUserPassword" type="password" autocomplete="new-password"></label><div class="dialog-actions"><button id="usersCloseBtn" class="button" type="button">Cancel</button><button id="usersSaveBtn" class="button primary" type="button">Create user</button></div></dialog>
+  <dialog id="passwordDialog" class="app-dialog" aria-labelledby="passwordTitle"><h2 id="passwordTitle">Change password</h2><label class="dialog-field">Current password<input id="currentPassword" type="password" autocomplete="current-password"></label><label class="dialog-field">New password<input id="newPassword" type="password" autocomplete="new-password" minlength="12"></label><div class="dialog-actions"><button id="passwordCloseBtn" class="button" type="button">Cancel</button><button id="passwordSaveBtn" class="button primary" type="button">Save password</button></div></dialog>
   <section id="printDirectory" class="print-only" aria-label="Printable panel directory"></section>
 </body>
 </html>

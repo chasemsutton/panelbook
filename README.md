@@ -1,46 +1,41 @@
-# Panelbook
+# Panelbook 0.2.0
 
-An offline residential electrical panel directory. Open `panelbook.html` in a modern browser. Keep the application files in one directory; no server, build step, account, or internet connection is needed for panel editing.
+Panelbook keeps electrical panel directories in a small local database and opens its interface in your browser. The same app can run on a Windows computer or on a home server. Version 0.2.0 changes the storage format and launch process from 0.1.x.
 
-## Updates
+## Windows portable app
 
-Version 0.1.4 checks for updates quietly once a day while the app is open and the internet is available. Choose **Stable** or **Beta** beside **Check for updates** to set the channel or check immediately. Stable checks published releases; Beta includes prereleases and stable releases. The chosen channel is remembered on this device. All panel features work offline.
+1. Download `Panelbook-Windows-v0.2.0.zip` from the [0.2.0 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.2.0) and extract it to a folder you can keep.
+2. Double-click `Panelbook.cmd`. It starts the local server and opens `http://127.0.0.1:8765/` in your usual browser. The browser is only the interface; your data is shared across browsers.
+3. Create the first account. The setup code is filled automatically when the launcher opens the page. If you open the address yourself, copy the code from the Panelbook console.
 
-When a newer release exists, click **Install update**. In Chrome or Edge, choose the directory containing `panelbook.html` the first time and approve write access. Panelbook remembers the folder for later updates. It checks every downloaded file against the release manifest, replaces the app files, and restores previous files if writing fails.
+Your accounts and homes are stored in `data/panelbook.sqlite3` beside the app files. The `data` folder is created on first launch. Keep this folder when moving the app to another computer and back it up regularly. Panelbook works offline after installation; checking for updates needs GitHub access.
 
-If your browser does not offer folder access, use **Set up Windows updater**. Run the downloaded `Panelbook-Setup` file once and choose the folder containing your existing `panelbook.html`. Setup installs the current release and registers the local updater. Future clicks on **Install update** open that updater; the browser may ask whether to open it. If you are upgrading from 0.1.3 or earlier and see only **Download release**, download `Panelbook-Setup-v0.1.4.cmd` directly from the 0.1.4 release and run it instead. You do not need to extract the ZIP or replace files yourself.
+The Windows app's **Check for updates** button downloads the newer portable release, checks its SHA-256 digest, replaces the app files, and reopens Panelbook. It leaves `data` untouched. If installation fails, the helper restores the previous app files and shows an error. The local administrator sees this button; hosted installations are updated by redeploying the server.
 
-Panel data is stored by the browser, not in the app files. Keep opening the same `panelbook.html` path in the same browser so your saved panels remain available. Export JSON regularly as a separate backup. Update checks and downloads require access to GitHub.
+`Panelbook.cmd` also runs the source version if Python 3.11 or newer is installed and `Panelbook.exe` is absent. In that mode, start it with `python server.py` or the launcher; app updates are done with Git or a new source archive.
 
-## Homes and panels
+## Importing 0.1.4 data
 
-Choose a home or location at the top. Add homes, rename the selected home, and add main panels. **Subpanel from here** asks for a name and an explicit feeder circuit from the open panel; it never chooses one automatically. A feeder must be an assigned, rated 240 V circuit, and each feeder can supply only one linked subpanel. Add the feeder circuit and its amp rating first. Each subpanel appears beneath its source panel, including nested subpanels. Click any panel card to open it or use **Open source panel** to go back. Feeder links follow the circuit record if its breaker assignment changes. If a feeder circuit is deleted, its subpanel remains visible with a feeder warning so you can reconnect it.
+In 0.1.4, choose **Export JSON → Everything** in the browser where your old data appears. Then open 0.2.0, sign in, and choose **Import JSON**. It accepts version 4 exports of an individual panel, a home, or everything. Imported homes are added to the account; existing homes remain available. A panel export can be added or used to replace a panel.
 
-Beside the panel name and spaces, **Make subpanel** requires a source panel and eligible feeder. **Make main panel** removes the feeder link while keeping its child panels attached. **Delete panel** asks for confirmation and also deletes descendant subpanels with their circuits and points. The last main panel in a home cannot be deleted until another main panel is added. A circuit in a subpanel cannot be rated above its feeder circuit, and lowering a feeder rating below an existing subpanel circuit is blocked. Any previously saved subpanel without a valid feeder is clearly marked for correction.
+If you cannot open the old app, open its original `panelbook.html` at the same path in the same browser to recover its browser storage. Opening the new HTML file with `file://` offers **Export data from this browser** when version 4 data is available for that file's origin. Export before moving or deleting the old files. The 0.2.0 server does not automatically read browser storage.
 
-Each panel has its own 12–42 spaces, breaker types, circuits, points, and printed directory. The panel name and spaces are edited beside the physical map.
+## Accounts and sharing
 
-## Entering a panel
+The first account is an administrator. Use **Users** to add accounts, then **Share home** to give a user editor or viewer access. Users can change their passwords with **Password**. An editor can change a shared home's panels; a viewer can read, print, and export them. The owner controls sharing. Each account also starts with its own home. Changes from a different browser can cause a save conflict; export your edits and reload before continuing.
 
-1. Choose the number of spaces in pairs and check the actual bus diagram and approved breaker positions.
-2. Click a position and select single pole, double pole, tandem, or quad tandem. A double spans two positions in one column. A tandem splits one position into `a` and `b`. A quad spans two positions and offers upper outer `5a`, central two-pole `5b/7a`, and lower outer `7b` when placed at position 5. The outer segments are 25% of its height each; the two-pole center is 50%.
-3. Add circuits with a breaker, friendly name, voltage, amperage, wire gauge, and label preference. New circuits start unassigned with 120 V. Double-pole and quad center assignments accept 240 V; singles, tandems, and quad outer assignments accept 120 V. An incompatible voltage change unassigns the circuit. An occupied breaker cannot be converted if doing so would lose a circuit.
-4. Add points of consumption with a permanent number, friendly name, location/description, and linked circuit. Point numbers remain fixed when other points move or are deleted.
-5. Choose whether a breaker displays its circuit name or linked outlet/switch names. Click table headings to sort in either direction. The selected sort and direction persist after closing the page.
+## Home server
 
-## Print and backup
+Run `docker compose up -d --build` from the source checkout, or run `python server.py --host 0.0.0.0 --port 8765 --data-dir /path/to/data --no-browser --secure-cookies` with Python 3.11+. The Compose file publishes only to the server's loopback address at port 8765. Put an HTTPS reverse proxy in front of it for remote access and preserve the incoming `Host` header. The server prints the first-account setup code in its logs (`docker compose logs panelbook`). Keep the `/data` volume or your configured data directory when redeploying. Back up the database with SQLite's backup API or stop the server before copying the database file.
 
-Click **Print / PDF** to open a popup with **Current panel**, **Current panel + subpanels**, **All panels in home**, and **Cancel**. The printed panel pages show physical breaker order. Each panel's detail tables follow the current on-screen sort order and show the active sort column and ▲/▼ direction. The browser's print dialog can save as PDF. Every panel's directory starts on a new page, with its circuit and point details starting on the next page when present.
+The app has account passwords, session cookies, roles, and CSRF protection. For access from outside your home network, use HTTPS and your usual network access controls. Do not publish the bare HTTP port to the internet.
 
-Click **Export JSON** to choose **Current panel**, **Current home**, **Everything**, or **Cancel**. JSON files include their scope. Importing a panel lets you replace an existing panel or add a new main or subpanel. Replacing preserves the target panel’s place in the home and clears direct child feeder assignments so they cannot silently point to a different circuit; importing a home adds it as another home with its subpanel feeder links preserved; importing everything replaces the full collection after confirmation. Existing full-collection version 4 JSON backups remain importable. Browser storage saves changes automatically. Existing local version 3 panel data opens as the first main panel once.
+## Working with panels
 
-## Checks and limits
+Choose a home, add main panels, and link subpanels through an assigned 240 V feeder circuit with an amp rating. Click a breaker position to choose single, double, tandem, or quad type. Add circuits with breaker assignments, names, ratings, and wire gauges. Add outlets or switches as numbered points linked to circuits. **Print / PDF** produces a directory; **Export JSON** makes a portable backup.
 
-- Two-space breakers need an available position below in the same column. Shrinking a panel cannot remove assigned positions or split a two-space breaker. Converting a quad requires moving circuits that cannot fit in the new type. Deleting a circuit leaves its points unassigned with their numbers intact.
-- Leg totals add breaker ratings, not measured load. A double-pole or quad center rating counts once on A and once on B. “Balanced” means a difference of at most 10% of the larger total.
-- Wire warnings use copper 60 °C reference values: 14 AWG 15 A; 12 AWG 20 A; 10 AWG 30 A; 8 AWG 40 A; 6 AWG 55 A; 4 AWG 70 A; 2 AWG 95 A; 1/0 AWG 125 A. Blank values are unchecked. Installation conditions and applicable rules may change what is permitted.
-- Tandem and quad compatibility depends on the exact panel and breaker. Verify the manufacturer's labeling and consult a qualified electrician for installation decisions.
+Panel layout and wire warnings are documentation aids. Check the actual panel labeling and applicable electrical rules with a qualified electrician before making installation decisions.
 
-## Files
+## Development
 
-`panelbook.html`, `styles.css`, `app.js`, `README.md`, `release.json`, `update-panelbook.ps1`, and `Panelbook-Setup.cmd`.
+The server uses Python's standard library, SQLite, and static HTML/CSS/JavaScript. Run `python -m unittest discover -s tests -v` for its integration tests. To build the Windows portable executable, install PyInstaller and run `python -m PyInstaller --onefile --console --name Panelbook server.py`; put `dist/Panelbook.exe` beside `Panelbook.cmd`, `panelbook.html`, `app.js`, `styles.css`, `update-portable.ps1`, and this README in the release ZIP. Never package `data`.
