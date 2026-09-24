@@ -52,7 +52,7 @@ def main():
         raise SystemExit(f"Build and package {ZIP} first.")
     if not args.from_zip.is_file():
         raise SystemExit(f"The installed release is missing: {args.from_zip}")
-    source_version = re.search(r"Panelbook-Portable-v(\d+\.\d+\.\d+)\.zip$", args.from_zip.name)
+    source_version = re.search(r"Panelbook-Portable-v(\d+\.\d+\.\d+(?:\.\d+)?)\.zip$", args.from_zip.name)
     if not source_version:
         raise SystemExit("--from-zip must name a versioned Panelbook portable release")
     with tempfile.TemporaryDirectory(prefix="panelbook updater test ") as scratch_name:
@@ -123,7 +123,9 @@ def main():
                                              headers={"Origin": base, "Content-Type": "application/json"})
             with urllib.request.urlopen(request) as response:
                 assert response.status == 201
-            assert status(port)["user"]["isLocal"]
+            local_status = status(port)
+            assert local_status["user"]["isLocal"]
+            assert local_status["autoClose"]
             assert (data / "marker.txt").read_text(encoding="utf-8") == "keep this data"
             print(f"Windows updater smoke test passed: {initial_version} to {VERSION}; local setup and data survived.")
         finally:
