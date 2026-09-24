@@ -4,7 +4,7 @@
   const PREVIOUS_KEY = "panelbook-directory-v3";
   const SORT_KEY = "panelbook-sort-preference-v1";
   const CHANNEL_KEY = "panelbook-update-channel-v1";
-  const APP_VERSION = "0.1.0";
+  const APP_VERSION = "0.1.1";
   const RELEASES_URL = "https://api.github.com/repos/chasemsutton/panelbook/releases?per_page=30";
   const UPDATE_FILES = ["styles.css","app.js","README.md","release.json","panelbook.html"];
   const SORT_FIELDS = {circuits:["assignment","name","voltage","amps","gauge","labelMode"],points:["circuitId","name","location","id"]};
@@ -144,6 +144,22 @@
   function choosePanel(id) { const p=panelById(id); if (!p) return; workbook.selectedPanelId=id; state=p; selected=1; renderAll(); }
   function descendants(id) { const result=new Set([id]); let size; do { size=result.size; for(const p of home().panels) if(result.has(p.parentPanelId)) result.add(p.id); } while(result.size!==size); return result; }
   function feederChildren(panelId,circuitId) { return home().panels.filter(p=>p.parentPanelId===panelId && p.parentCircuitId===circuitId); }
+  function validateFeeder(parentId,circuitId,childId=null,childCircuits=[]) {
+    const parent=panelById(Number(parentId));
+    const feeder=parent?.circuits.find(c=>c.id===Number(circuitId));
+    if(!feeder || !feeder.assignment || feeder.voltage!==240 || !feeder.amps) throw Error("Choose an assigned 240 V feeder circuit with an amp rating.");
+    if(feederChildren(parent.id,feeder.id).some(p=>p.id!==childId))throw Error("That feeder circuit already supplies another subpanel.");
+    const oversized=childCircuits.find(c=>c.amps && c.amps>feeder.amps);
+    if(oversized)throw Error(`A ${oversized.amps} A circuit in the subpanel exceeds its ${feeder.amps} A feeder.`);
+    return feeder;
+  }
+  function feederOptions(parentId,selectedId=null,childId=null,childCircuits=[]) {
+    const parent=panelById(Number(parentId));
+    const choices=parent?.circuits.filter(c=>{
+      try{validateFeeder(parent.id,c.id,childId,childCircuits);return true;}catch{return false;}
+    }).sort((a,b)=>breakerOrder(a.assignment,b.assignment))||[];
+    return `<option value="">Select 240 V feeder</option>`+choices.map(c=>`<option value="${c.id}"${c.id===selectedId?" selected":""}>${escapeHTML(c.assignment)} · ${escapeHTML(c.name||"Unnamed circuit")} · ${c.amps} A</option>`).join("");
+  }
   function assignments() {
     const out = [];
     for (let n = 1; n <= state.spaces; n++) if (owner(n) === n) for (const key of keysAt(n)) out.push(key);
@@ -340,17 +356,20 @@
     select.innerHTML=workbook.homes.map(h=>`<option value="${h.id}"${h.id===current.id?" selected":""}>${escapeHTML(h.name||"Untitled home")}</option>`).join("");
     const nav=el("panelNav");nav.innerHTML="";
     function leafCount(panel){const children=current.panels.filter(p=>p.parentPanelId===panel.id);return children.length?children.reduce((total,child)=>total+leafCount(child),0):1;}
+    function treeWidth(panel){const leaves=leafCount(panel);return leaves*200+(leaves-1)*12;}
     function appendPanel(p,container){
       const tree=document.createElement("div");tree.className="panel-tree";
-      const leaves=leafCount(p);tree.style.width=`${Math.max(container===nav?220:190,leaves*202-12)}px`;
+      tree.style.width=`${treeWidth(p)}px`;
       const button=document.createElement("button");button.type="button";button.className=`panel-nav-item${p.id===state.id?" active":""}`;
       button.dataset.openPanel=String(p.id);
       const source=p.kind==="sub"?current.panels.find(x=>x.id===p.parentPanelId):null;
       const feeder=source?.circuits.find(c=>c.id===p.parentCircuitId);
-      button.innerHTML=`<span>${p.kind==="sub"?"↳ ":"▣ "}${escapeHTML(p.name||"Untitled panel")}</span><small>${p.kind==="main"?"Main panel":`Subpanel · ${feeder?.assignment?`fed by ${escapeHTML(feeder.assignment)}`:"feeder not selected"}`}</small>`;
+      let feedValid=false;
+      if(p.kind==="sub")try{validateFeeder(p.parentPanelId,p.parentCircuitId,p.id,p.circuits);feedValid=true;}catch{}
+      button.innerHTML=`<span>${p.kind==="sub"?"↳ ":"▣ "}${escapeHTML(p.name||"Untitled panel")}</span><small>${p.kind==="main"?"Main panel":`Subpanel · ${feedValid?`fed by ${escapeHTML(feeder.assignment)}`:"feeder required"}`}</small>`;
       tree.append(button);
       const children=current.panels.filter(x=>x.parentPanelId===p.id);
-      if(children.length){const branches=document.createElement("div");branches.className="panel-branches";branches.style.setProperty("--children",String(children.length));for(const child of children)appendPanel(child,branches);tree.append(branches);}
+      if(children.length){const branches=document.createElement("div");branches.className="panel-branches";branches.style.setProperty("--first-width",`${treeWidth(children[0])}px`);branches.style.setProperty("--last-width",`${treeWidth(children.at(-1))}px`);for(const child of children)appendPanel(child,branches);tree.append(branches);}
       container.append(tree);
     }
     for(const p of current.panels.filter(p=>p.kind==="main")) appendPanel(p,nav);
@@ -359,7 +378,9 @@
       const blocked=descendants(state.id);
       el("parentPanelSelect").innerHTML=current.panels.filter(p=>!blocked.has(p.id)).map(p=>`<option value="${p.id}"${p.id===state.parentPanelId?" selected":""}>${escapeHTML(p.name||"Untitled panel")}</option>`).join("");
       const parent=panelById(state.parentPanelId);
-      el("feederCircuitSelect").innerHTML=`<option value="">Select feeder circuit</option>`+(parent?.circuits.filter(c=>c.assignment).sort((a,b)=>breakerOrder(a.assignment,b.assignment)).map(c=>`<option value="${c.id}"${c.id===state.parentCircuitId?" selected":""}>${escapeHTML(c.assignment)} · ${escapeHTML(c.name||"Unnamed circuit")}</option>`).join("")||"");
+      el("feederCircuitSelect").innerHTML=feederOptions(parent?.id,state.parentCircuitId,state.id,state.circuits);
+      try{validateFeeder(state.parentPanelId,state.parentCircuitId,state.id,state.circuits);el("feederStatus").textContent="";}
+      catch(error){el("feederStatus").textContent=error.message;}
     }
   }
   function renderRows() {
@@ -420,9 +441,8 @@
     state.spaces=spaces; selected=Math.min(selected,spaces); renderAll();
   }
   function addCircuit() {
-    const used = new Set(state.circuits.map(c => c.assignment));
     const id=state.nextCircuitId++;
-    state.circuits.push({id,name:"",assignment:assignments().find(key => !used.has(key) && !key.includes("/")) || "",voltage:120,amps:null,gauge:"",labelMode:"circuits"});
+    state.circuits.push({id,name:"",assignment:"",voltage:120,amps:null,gauge:"",labelMode:"circuits"});
     renderAll(); el("circuitRows").querySelector(`[data-circuit-id="${id}"] [data-field="name"]`)?.focus();
   }
   function addPoint() {
@@ -437,20 +457,27 @@
     const row=target.closest("tr"); if (!row) return;
     const c=circuitFor(Number(row.dataset.circuitId)),field=target.dataset.field;
     if (!c || !field) return;
+    const children=feederChildren(state.id,c.id);
     if (field==="amps") {
       const value=target.value.trim();
       if (value && (!/^\d+$/.test(value) || Number(value)<1 || Number(value)>400)) { target.setCustomValidity("Enter a whole number from 1 to 400."); target.reportValidity(); return; }
+      const next=value?Number(value):null;
+      const tooLarge=state.kind==="sub" && state.parentCircuitId && (()=>{const feeder=panelById(state.parentPanelId)?.circuits.find(item=>item.id===state.parentCircuitId);return feeder?.voltage===240 && feeder?.amps && next>feeder.amps ? feeder.amps : null;})();
+      const childLimit=children.length && (!next || children.some(child=>child.circuits.some(item=>item.amps && item.amps>next)));
+      if(tooLarge||childLimit){const message=tooLarge?`This subpanel’s feeder is rated ${tooLarge} A.`:"A linked subpanel has a circuit above that feeder rating. Change its circuits first.";target.setCustomValidity(message);if(commit){target.reportValidity();notify(message);renderRows();}return;}
       target.setCustomValidity(""); c.amps=value ? Number(value) : null;
     } else if (field==="voltage") {
+      if(children.length && Number(target.value)!==240){notify("A circuit feeding a subpanel must stay 240 V. Reassign the subpanel first.");renderRows();return;}
       c.voltage=Number(target.value);
       if (!isCompatible(c.voltage,c.assignment)) { c.assignment=""; notify(`Circuit unassigned: ${c.voltage} V requires a ${c.voltage === 240 ? "double-pole or quad center" : "single-pole, tandem, or quad outer"} position.`); }
     } else if (field==="assignment") {
+      if(children.length && !target.value){notify("Choose another 240 V breaker for this feeder before unassigning it.");renderRows();return;}
       if (!isCompatible(c.voltage,target.value)) { notify("Breaker and voltage do not match."); renderRows(); return; }
       c.assignment=target.value;
     } else c[field]=target.value;
     if(!c.assignment) for(const child of feederChildren(state.id,c.id)) child.parentCircuitId=null;
     save(); updateWarning(row,c); renderPanel(); renderTotals();
-    if(field==="name" || field==="assignment" || field==="voltage") renderNavigation();
+    if(field==="name" || field==="assignment" || field==="voltage" || field==="amps") renderNavigation();
     if (field==="name" || field==="assignment" || field==="voltage") renderPointRows();
     if (commit && (field==="assignment" || field==="voltage" || sorts.circuits.key===field)) renderRows();
   }
@@ -503,7 +530,9 @@
       const pointHeads=[["circuitId","Circuit"],["name","Friendly name"],["location","Location / description"],["id","No."]].map(([key,label])=>printHead("points",key,label)).join("");
       const feeder=panel.kind==="sub"?home().panels.find(p=>p.id===panel.parentPanelId):null;
       const feederCircuit=feeder?.circuits.find(c=>c.id===panel.parentCircuitId);
-      const source=feeder?`<div class="paper-source">Fed from ${escapeHTML(feeder.name||"Untitled panel")}${feederCircuit?.assignment?` · breaker ${escapeHTML(feederCircuit.assignment)}`:" · feeder not selected"}</div>`:"";
+      let feedValid=false;
+      if(feeder)try{validateFeeder(feeder.id,panel.parentCircuitId,panel.id,panel.circuits);feedValid=true;}catch{}
+      const source=feeder?`<div class="paper-source${feedValid?"":" print-warning"}">${feedValid?"Fed from":"Feeder needs correction · source"} ${escapeHTML(feeder.name||"Untitled panel")}${feedValid?` · breaker ${escapeHTML(feederCircuit.assignment)}`:""}</div>`:"";
       return `<article class="print-panel${state.spaces>32?" compact":""}"><div class="paper-sheet"><div class="paper-title"><div><span class="paper-kicker">ELECTRICAL PANEL · ${escapeHTML(home().name)}</span><h1>${escapeHTML(state.name||"Untitled panel")}</h1>${source}</div><div class="paper-title-meta">DIRECTORY<br>${state.spaces} SPACES<br>${new Date().toLocaleDateString()}</div></div><table class="paper-panel"><colgroup><col class="paper-no-col"><col><col class="paper-no-col"><col></colgroup><thead><tr><th>No.</th><th>Circuit / destination</th><th>No.</th><th>Circuit / destination</th></tr></thead><tbody>${grid}</tbody></table></div>${state.circuits.length||state.points.length?`<div class="paper-detail"><div class="paper-detail-header"><span>PANELBOOK · ${escapeHTML(home().name)}</span><h2>${escapeHTML(state.name||"Untitled panel")} · Breaker &amp; point details</h2></div>${state.circuits.length?`<h3>Circuits ${printSortNote("circuits")}</h3><table class="paper-index"><thead><tr>${circuitHeads}</tr></thead><tbody>${records}</tbody></table>`:""}${state.points.length?`<h3>Points of consumption ${printSortNote("points")}</h3><table class="paper-index points-index"><thead><tr>${pointHeads}</tr></thead><tbody>${pointRecords}</tbody></table>`:""}</div>`:""}</article>`;
     } finally {state=previous;}
   }
@@ -526,15 +555,10 @@
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);
     const a=document.createElement("a");a.href=url;a.download=fileName;a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
   }
-  function feederOptions(parentId,selectedId=null) {
-    const parent=panelById(Number(parentId));
-    return `<option value="">Choose later</option>`+(parent?.circuits.filter(c=>c.assignment).sort((a,b)=>breakerOrder(a.assignment,b.assignment)).map(c=>`<option value="${c.id}"${c.id===selectedId?" selected":""}>${escapeHTML(c.assignment)} · ${escapeHTML(c.name||"Unnamed circuit")}</option>`).join("")||"");
-  }
-  function chosenFeeder(parentId,feederId) {
+  function chosenFeeder(parentId,feederId,childId=null,childCircuits=[]) {
     const value=el(feederId).value;
-    const parent=panelById(Number(el(parentId).value));
-    if(value && !parent?.circuits.some(c=>c.id===Number(value) && c.assignment))throw Error("Choose an assigned feeder circuit.");
-    return value?Number(value):null;
+    validateFeeder(el(parentId).value,value,childId,childCircuits);
+    return Number(value);
   }
   function showConvertDialog() {
     const blocked=descendants(state.id);
@@ -542,7 +566,7 @@
     if(!options.length){notify("Add another main panel before converting this one to a subpanel.");return;}
     el("convertParent").innerHTML=options.map(p=>`<option value="${p.id}">${escapeHTML(p.name||"Untitled panel")}</option>`).join("");
     el("convertParent").value=String(options.find(p=>p.kind==="main")?.id??options[0].id);
-    el("convertFeeder").innerHTML=feederOptions(el("convertParent").value);
+    el("convertFeeder").innerHTML=feederOptions(el("convertParent").value,null,state.id,state.circuits);
     const dialog=el("convertDialog");dialog.returnValue="";dialog.showModal();
   }
   function convertPanel() {
@@ -552,7 +576,7 @@
   function finishConversion() {
     const parent=panelById(Number(el("convertParent").value));
     if(!parent || descendants(state.id).has(parent.id))throw Error("Choose a source panel outside this panel’s branch.");
-    const feederId=chosenFeeder("convertParent","convertFeeder");
+    const feederId=chosenFeeder("convertParent","convertFeeder",state.id,state.circuits);
     state.kind="sub";state.parentPanelId=parent.id;state.parentCircuitId=feederId;
     renderAll();notify("This panel is now a subpanel.",true);
   }
@@ -571,6 +595,8 @@
     const mode=el("panelImportChoices").querySelector('input[name="panelImportMode"]:checked')?.value;
     el("importOverwriteFields").hidden=mode!=="overwrite";
     el("importSubFields").hidden=mode!=="sub";
+    el("importFeeder").required=mode==="sub";
+    if(mode==="sub" && pendingPanelImport)el("importFeeder").innerHTML=feederOptions(el("importParent").value,null,null,pendingPanelImport.circuits);
     if(mode==="overwrite"){
       const target=panelById(Number(el("importTargetPanel").value));
       const children=home().panels.filter(p=>p.parentPanelId===target?.id).length;
@@ -584,7 +610,7 @@
     el("importTargetPanel").value=String(state.id);
     el("importParent").innerHTML=home().panels.map(p=>`<option value="${p.id}">${escapeHTML(p.name||"Untitled panel")}</option>`).join("");
     el("importParent").value=String(state.id);
-    el("importFeeder").innerHTML=feederOptions(state.id);
+    el("importFeeder").innerHTML=feederOptions(state.id,null,null,imported.circuits);
     el("panelImportChoices").querySelector('input[value="main"]').checked=true;
     updateImportFields();
     const dialog=el("panelImportDialog");dialog.returnValue="";dialog.showModal();
@@ -604,7 +630,7 @@
       home().panels.push(panel);choosePanel(panel.id);notify("Panel added as a main panel.",true);
     } else if(mode==="sub"){
       const parent=panelById(Number(el("importParent").value));if(!parent)throw Error("Choose a source panel.");
-      const feeder=chosenFeeder("importParent","importFeeder");
+      const feeder=chosenFeeder("importParent","importFeeder",null,imported.circuits);
       const panel={...makePanel(workbook.nextPanelId++,imported.name,"sub",parent.id),...imported,parentCircuitId:feeder};
       home().panels.push(panel);choosePanel(panel.id);notify("Panel added as a subpanel.",true);
     } else throw Error("Choose an import option.");
@@ -637,17 +663,27 @@
     el("linkedPanels").addEventListener("click",e=>{const button=e.target.closest("[data-open-panel]");if(button)choosePanel(Number(button.dataset.openPanel));});
     el("addHomeBtn").addEventListener("click",()=>{const name=prompt("Name this home or location:",`Home ${workbook.nextHomeId}`);if(name===null)return;const clean=name.trim().slice(0,80);if(!clean){notify("Enter a home name.");return;}const panel=makePanel(workbook.nextPanelId++,"Main panel"),h={id:workbook.nextHomeId++,name:clean,panels:[panel]};workbook.homes.push(h);workbook.selectedHomeId=h.id;workbook.selectedPanelId=panel.id;state=panel;selected=1;renderAll();});
     el("addMainBtn").addEventListener("click",()=>{const name=prompt("Name this main panel:",`Main panel ${home().panels.filter(p=>p.kind==="main").length+1}`);if(name===null)return;const clean=name.trim().slice(0,80);if(!clean){notify("Enter a panel name.");return;}const p=makePanel(workbook.nextPanelId++,clean);home().panels.push(p);choosePanel(p.id);});
-    el("addSubBtn").addEventListener("click",()=>{const name=prompt("Name this subpanel:","Subpanel");if(name===null)return;const clean=name.trim().slice(0,80);if(!clean){notify("Enter a panel name.");return;}const parent=state;const p=makePanel(workbook.nextPanelId++,clean,"sub",parent.id);p.parentCircuitId=keysAt(owner(selected)).map(circuitAt).find(c=>c?.assignment)?.id ?? parent.circuits.find(c=>c.assignment)?.id ?? null;home().panels.push(p);choosePanel(p.id);if(!p.parentCircuitId)notify("Add a circuit to the source panel, then choose it as this subpanel’s feeder.");});
-    el("parentPanelSelect").addEventListener("change",e=>{const parent=panelById(Number(e.target.value));if(!parent || descendants(state.id).has(parent.id))return;state.parentPanelId=parent.id;state.parentCircuitId=null;renderAll();});
-    el("feederCircuitSelect").addEventListener("change",e=>{const parent=panelById(state.parentPanelId),id=e.target.value?Number(e.target.value):null;if(id && !parent?.circuits.some(c=>c.id===id && c.assignment)){notify("Choose an assigned circuit in the source panel.");renderNavigation();return;}state.parentCircuitId=id;renderAll();});
+    el("addSubBtn").addEventListener("click",()=>{
+      el("newSubName").value="";el("newSubFeeder").innerHTML=feederOptions(state.id);
+      if(el("newSubFeeder").options.length===1){notify("Add an unused 240 V circuit with a breaker and amp rating to this panel first.");return;}
+      el("addSubDialog").returnValue="";el("addSubDialog").showModal();el("newSubName").focus();
+    });
+    el("addSubDialog").addEventListener("close",()=>{if(el("addSubDialog").returnValue!=="confirm")return;try{
+      const name=el("newSubName").value.trim();if(!name)throw Error("Enter a subpanel name.");
+      const feeder=validateFeeder(state.id,el("newSubFeeder").value);
+      const panel=makePanel(workbook.nextPanelId++,name,"sub",state.id);panel.parentCircuitId=feeder.id;
+      home().panels.push(panel);choosePanel(panel.id);notify("Subpanel added with the selected 240 V feeder.",true);
+    }catch(error){notify(error.message);}});
+    el("parentPanelSelect").addEventListener("change",e=>{const parent=panelById(Number(e.target.value));if(!parent || descendants(state.id).has(parent.id))return;state.parentPanelId=parent.id;state.parentCircuitId=null;renderAll();notify("Choose an unused 240 V feeder from the new source panel.");});
+    el("feederCircuitSelect").addEventListener("change",e=>{try{const feeder=validateFeeder(state.parentPanelId,e.target.value,state.id,state.circuits);state.parentCircuitId=feeder.id;renderAll();}catch(error){notify(error.message);renderNavigation();}});
     el("goParentBtn").addEventListener("click",()=>choosePanel(state.parentPanelId));
     el("convertPanelBtn").addEventListener("click",convertPanel);
     el("deletePanelBtn").addEventListener("click",deletePanel);
-    el("convertParent").addEventListener("change",e=>{el("convertFeeder").innerHTML=feederOptions(e.target.value);});
+    el("convertParent").addEventListener("change",e=>{el("convertFeeder").innerHTML=feederOptions(e.target.value,null,state.id,state.circuits);});
     el("convertDialog").addEventListener("close",()=>{if(el("convertDialog").returnValue==="confirm")try{finishConversion();}catch(error){notify(error.message);}});
     el("panelImportChoices").addEventListener("change",updateImportFields);
     el("importTargetPanel").addEventListener("change",updateImportFields);
-    el("importParent").addEventListener("change",e=>{el("importFeeder").innerHTML=feederOptions(e.target.value);});
+    el("importParent").addEventListener("change",e=>{el("importFeeder").innerHTML=feederOptions(e.target.value,null,null,pendingPanelImport?.circuits||[]);});
     el("panelImportDialog").addEventListener("close",()=>{try{if(el("panelImportDialog").returnValue==="confirm")finishPanelImport();}catch(error){notify(error.message);}finally{pendingPanelImport=null;}});
     el("panelGrid").addEventListener("click",e=>{const btn=e.target.closest("[data-position]");if(!btn)return;selected=Number(btn.dataset.position);renderPanel();});
     el("breakerType").addEventListener("change",e=>convert(selected,e.target.value));
