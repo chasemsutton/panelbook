@@ -26,6 +26,7 @@ SERVER_FILES = {
     "Dockerfile": ROOT / "Dockerfile",
     ".dockerignore": ROOT / ".dockerignore",
     "compose.yaml": ROOT / "compose.yaml",
+    "compose.pull.yaml": ROOT / "compose.pull.yaml",
     ".env.example": ROOT / ".env.example",
     "nginx/panelbook-site.conf.example": ROOT / "nginx" / "panelbook-site.conf.example",
     "program/server.py": ROOT / "program" / "server.py",
