@@ -1,9 +1,9 @@
 {
-  "version": "v0.1.0",
+  "version": "v0.1.1",
   "files": {
-    "panelbook.html": "a181351ea3efa2bb2855745e9e14ec5670449e88501911a4e1a87c505f142e0d",
-    "styles.css": "c1645dc5a7abde0fd97554a903552baa09b17c350d6df6516f8408c845461335",
-    "app.js": "c34dbfc1c8a70fefd2524dfbe86907138b8a18f9b04140dfe30baf27b34fb03e",
-    "README.md": "fc2a7a8930bdf541d3b2492b50147d6628c28cbb40630bc28df77cc5003cf985"
+    "panelbook.html": "36f5c151780b9fba12bb9ba25aa23b7b27fcf0a791eb4896be7a0948338e72bd",
+    "styles.css": "a94648bcf1982afd6885a7128dfdfe2fa1217f6a46510056c8bbae6c2849fe7d",
+    "app.js": "bb1e40893e65f68aca7a29de7fd708bc7b7832034be588db85c5c70d4cfcf7a2",
+    "README.md": "e83f5dcfc3732f018fd8a21663718b14b3fcc66dbf263871603abc71d1676252"
   }
 }
