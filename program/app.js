@@ -639,6 +639,7 @@
   }
   function showAccountControls(status) {
     csrfToken=status.csrf;currentUser=status.user;currentVersion=status.version;
+    el("brandSubtitle").textContent=`Residential panel directory · v${status.version}`;
     el("signedInAs").textContent=currentUser.isLocal?"Local only":currentUser.username;
     el("autoCloseControl").hidden=!currentUser.isLocal;
     el("autoCloseCheckbox").checked=!!status.autoClose;
@@ -818,6 +819,7 @@
     }
     try{
       const status=await api("/api/status");
+      el("brandSubtitle").textContent=`Residential panel directory · v${status.version}`;
       if(status.needsSetup){
         el("authForm").dataset.setup="true";
         el("authTitle").textContent=status.canUseLocal?"Choose how to start":"Create first account";

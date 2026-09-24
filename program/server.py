@@ -23,7 +23,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 ROOT = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 PROGRAM_LAYOUT = ROOT.name.lower() == "program"
 APP_ROOT = ROOT.parent if PROGRAM_LAYOUT else ROOT
@@ -644,7 +644,8 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                     command.append("-SecureCookies")
                 subprocess.Popen(command,
                                  creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
-                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 env={**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"})
                 db.commit()
                 self.json_response({"ok": True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()

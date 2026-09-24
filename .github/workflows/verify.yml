@@ -34,7 +34,7 @@ jobs:
               try:
                   with urllib.request.urlopen('http://127.0.0.1:8765/api/status', timeout=2) as response:
                       status = json.load(response)
-                  assert status['version'] == '0.4.1', status
+                  assert status['version'] == '0.4.2', status
                   assert not status['localMode'] and not status['canUseLocal'] and not status['canUpdate'], status
                   print('Hosted container is ready:', status['version'])
                   break

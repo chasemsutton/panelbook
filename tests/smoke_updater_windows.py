@@ -52,6 +52,9 @@ def main():
         raise SystemExit(f"Build and package {ZIP} first.")
     if not args.from_zip.is_file():
         raise SystemExit(f"The installed release is missing: {args.from_zip}")
+    source_version = re.search(r"Panelbook-Portable-v(\d+\.\d+\.\d+)\.zip$", args.from_zip.name)
+    if not source_version:
+        raise SystemExit("--from-zip must name a versioned Panelbook portable release")
     with tempfile.TemporaryDirectory(prefix="panelbook updater test ") as scratch_name:
         scratch = Path(scratch_name)
         app = scratch / "app"
@@ -86,6 +89,9 @@ def main():
                     time.sleep(0.25)
             else:
                 raise AssertionError("The initial app did not start.")
+            assert initial_version == source_version.group(1), (
+                f"{args.from_zip.name} runs version {initial_version}, expected {source_version.group(1)}"
+            )
             helper = subprocess.Popen(
                 ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(app / "program" / "update-portable.ps1"),
                  "-AppFolder", str(app), "-ServerPid", str(old.pid),
