@@ -6,6 +6,7 @@ import hmac
 import ipaddress
 import json
 import os
+import re
 import subprocess
 import secrets
 import sqlite3
@@ -22,7 +23,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 ROOT = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 PROGRAM_LAYOUT = ROOT.name.lower() == "program"
 APP_ROOT = ROOT.parent if PROGRAM_LAYOUT else ROOT
@@ -198,7 +199,8 @@ def initialize_database(path):
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 password_hash TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0,
-                is_local INTEGER NOT NULL DEFAULT 0
+                is_local INTEGER NOT NULL DEFAULT 0,
+                auto_close INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS sessions (
                 token_hash TEXT PRIMARY KEY, csrf TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -217,6 +219,8 @@ def initialize_database(path):
         """)
         if "is_local" not in {row["name"] for row in db.execute("PRAGMA table_info(users)")}:
             db.execute("ALTER TABLE users ADD COLUMN is_local INTEGER NOT NULL DEFAULT 0")
+        if "auto_close" not in {row["name"] for row in db.execute("PRAGMA table_info(users)")}:
+            db.execute("ALTER TABLE users ADD COLUMN auto_close INTEGER NOT NULL DEFAULT 0")
 
 
 def create_home(db, user_id, name="Home", panels=None):
@@ -230,6 +234,8 @@ def create_home(db, user_id, name="Home", panels=None):
 
 class PanelbookServer(ThreadingHTTPServer):
     daemon_threads = True
+    presence_lease = 180
+    presence_grace = 8
 
     def __init__(self, address, db_path, secure_cookies=False, local_mode=False):
         super().__init__(address, PanelbookHandler)
@@ -239,6 +245,56 @@ class PanelbookServer(ThreadingHTTPServer):
         self.setup_token = secrets.token_urlsafe(18)
         self.login_failures = {}
         self.login_lock = threading.Lock()
+        self.presence_lock = threading.Lock()
+        self.presence_stop = threading.Event()
+        self.presence_tabs = {}
+        self.presence_seen = False
+        self.presence_empty_since = None
+        self.presence_thread = None
+        with database(db_path) as db:
+            row = db.execute("SELECT auto_close FROM users WHERE is_local=1").fetchone()
+            self.auto_close_enabled = bool(row and row["auto_close"])
+
+    def set_auto_close(self, enabled):
+        with self.presence_lock:
+            self.auto_close_enabled = enabled
+
+    def record_presence(self, tab_id, active):
+        with self.presence_lock:
+            now = time.monotonic()
+            if active:
+                self.presence_tabs[tab_id] = now
+            else:
+                self.presence_tabs.pop(tab_id, None)
+            self.presence_seen = True
+            self.presence_empty_since = None if self.presence_tabs else now
+            if self.presence_thread is None:
+                self.presence_thread = threading.Thread(target=self.watch_presence, daemon=True)
+                self.presence_thread.start()
+
+    def watch_presence(self):
+        while not self.presence_stop.wait(1):
+            with self.presence_lock:
+                now = time.monotonic()
+                self.presence_tabs = {tab: seen for tab, seen in self.presence_tabs.items()
+                                      if now - seen < self.presence_lease}
+                if self.presence_tabs:
+                    self.presence_empty_since = None
+                elif self.presence_seen and self.presence_empty_since is None:
+                    self.presence_empty_since = now
+                should_close = (self.auto_close_enabled and self.presence_seen
+                                and self.presence_empty_since is not None
+                                and now - self.presence_empty_since >= self.presence_grace)
+                if should_close:
+                    self.auto_close_enabled = False
+            if should_close:
+                print("All local Panelbook tabs closed; stopping the server.", flush=True)
+                self.shutdown()
+                return
+
+    def server_close(self):
+        self.presence_stop.set()
+        super().server_close()
 
 
 class PanelbookHandler(BaseHTTPRequestHandler):
@@ -406,6 +462,7 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                             (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
                 self.json_response({"version": VERSION, "needsSetup": needs_setup, "localMode": self.server.local_mode,
                                     "canUseLocal": bool(needs_setup and self.is_local_request()),
+                                    "autoClose": bool(user and user["is_local"] and self.server.auto_close_enabled),
                                     "canUpdate": bool(user and user["is_admin"] and self.server.local_mode and os.name == "nt" and getattr(sys, "frozen", False) and PROGRAM_LAYOUT),
                                     "user": None if user is None else {"id": user["id"], "username": user["username"], "isAdmin": bool(user["is_admin"]), "isLocal": bool(user["is_local"])},
                                     "csrf": None if user is None else user["csrf"]}, cookie=cookie)
@@ -489,13 +546,34 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 username = self.valid_username(data.get("username"))
                 new_hash = password_hash(data.get("password"))
                 try:
-                    db.execute("UPDATE users SET username=?,password_hash=?,is_local=0 WHERE id=?",
+                    db.execute("UPDATE users SET username=?,password_hash=?,is_local=0,auto_close=0 WHERE id=?",
                                (username, new_hash, user["id"]))
                 except sqlite3.IntegrityError:
                     raise ApiError(409, "That username is already in use.")
                 db.execute("DELETE FROM sessions WHERE user_id=? AND token_hash<>?", (user["id"], user["token_hash"]))
                 db.commit()
+                self.server.set_auto_close(False)
                 self.json_response({"ok": True})
+                return
+            if path == "/api/local/auto-close":
+                if not user["is_local"] or not self.is_local_request():
+                    raise ApiError(403, "Automatic close is only available in a local-only workspace.")
+                enabled = data.get("enabled")
+                if type(enabled) is not bool:
+                    raise ApiError(400, "Choose whether to close Panelbook with its tabs.")
+                db.execute("UPDATE users SET auto_close=? WHERE id=?", (int(enabled), user["id"]))
+                db.commit()
+                self.server.set_auto_close(enabled)
+                self.json_response({"autoClose": enabled})
+                return
+            if path == "/api/local/presence":
+                if not user["is_local"] or not self.is_local_request():
+                    raise ApiError(403, "Tab presence is only available in a local-only workspace.")
+                tab_id, active = data.get("tabId"), data.get("active")
+                if not isinstance(tab_id, str) or not re.fullmatch(r"[A-Za-z0-9-]{16,64}", tab_id) or type(active) is not bool:
+                    raise ApiError(400, "Invalid tab presence.")
+                self.server.record_presence(tab_id, active)
+                self.json_response({"autoClose": self.server.auto_close_enabled})
                 return
             if path == "/api/account/password":
                 if user["is_local"]:

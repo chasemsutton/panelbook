@@ -1,11 +1,11 @@
-# Panelbook 0.3.1
+# Panelbook 0.3.2
 
-Panelbook stores electrical panel directories in a local SQLite database and opens its interface in a browser. The same app can run on a Windows computer or a home server. Version 0.3.1 adds a local-only start option and a way to create a login later.
+Panelbook stores electrical panel directories in a local SQLite database and opens its interface in a browser. The same app can run on a Windows computer or a home server. Version 0.3.2 minimizes the Windows launcher and adds optional automatic shutdown for local-only workspaces.
 
 ## Windows portable app
 
-1. Download `Panelbook-Portable-v0.3.1.zip` from the [0.3.1 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.3.1) and extract it to a folder you can keep.
-2. Double-click **`Panelbook.cmd`** at the top level. It starts the local server and opens `http://127.0.0.1:8765/` in your usual browser.
+1. Download `Panelbook-Portable-v0.3.2.zip` from the [0.3.2 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.3.2) and extract it to a folder you can keep.
+2. Double-click **`Panelbook.cmd`** at the top level. It starts the local server in a minimized console window and opens `http://127.0.0.1:8765/` in your usual browser.
 3. Choose **Continue locally without a login** to use Panelbook only from this machine, or create a login for accounts and sharing. When creating a login, the setup code is filled automatically if the launcher opens the page. Otherwise, copy it from the Panelbook console.
 
 The folder layout is:
@@ -25,17 +25,19 @@ data/                  ← created on first launch
 
 Homes are stored in `data/panelbook.sqlite3` beside the launcher. Keep `data/` when moving the app and back it up regularly. A local-only workspace opens automatically at the local address and is unavailable from other machines. Choose **Create login** in the app to add a username and password later; your homes and panels stay in place. Panelbook works offline after installation; checking for updates needs GitHub access.
 
+In a local-only workspace, select **Close server when all tabs close** to stop Panelbook after the last browser tab closes. The setting is off by default and persists across launches. A short delay lets page reloads reconnect; if the browser exits without sending a close event, the server stops after its tab heartbeat expires (about three minutes). The setting is removed when you create a login.
+
 The local administrator's **Check for updates** button downloads a newer portable release, checks its SHA-256 digest, replaces app files, and restarts Panelbook. The open browser tab reloads when the new server is ready. It preserves the database in `data/`. If copying or startup fails, the helper restores and restarts the previous app, and writes details to `data/updater.log`. Hosted installations are updated by redeploying the server.
 
-**Breaking update from 0.2.0 or 0.2.1:** 0.2.0 expects the old flat ZIP, and 0.2.1 still uses the unreliable restart path. Close Panelbook, extract the 0.3.1 ZIP into a new folder, then move your existing `data/` folder beside the new `Panelbook.cmd`. Run the new launcher. Keep a backup of `data/` until you confirm your homes and accounts appear. Use this manual upgrade for both old versions. Version 0.3.0 can update in the app.
+**Breaking update from 0.2.0 or 0.2.1:** 0.2.0 expects the old flat ZIP, and 0.2.1 still uses the unreliable restart path. Close Panelbook, extract the 0.3.2 ZIP into a new folder, then move your existing `data/` folder beside the new `Panelbook.cmd`. Run the new launcher. Keep a backup of `data/` until you confirm your homes and accounts appear. Use this manual upgrade for both old versions. Versions 0.3.0 and 0.3.1 can update in the app.
 
 `Panelbook.cmd` also runs the source version if Python 3.11 or newer is installed and `program/Panelbook.exe` is absent. In that mode, start it with `python program/server.py` or the launcher; app updates are done with Git or a new source archive.
 
 ## Importing 0.1.4 data
 
-In 0.1.4, choose **Export JSON → Everything** in the browser where your old data appears. Then open 0.3.1 and choose **Import JSON**. It accepts version 4 exports of an individual panel, a home, or everything. Imported homes are added to the workspace; existing homes remain available. A panel export can be added or used to replace a panel.
+In 0.1.4, choose **Export JSON → Everything** in the browser where your old data appears. Then open 0.3.2 and choose **Import JSON**. It accepts version 4 exports of an individual panel, a home, or everything. Imported homes are added to the workspace; existing homes remain available. A panel export can be added or used to replace a panel.
 
-If you cannot open the old app, open its original `panelbook.html` at the same path in the same browser to recover its browser storage. Opening the new HTML file with `file://` offers **Export data from this browser** when version 4 data is available for that file's origin. Export before moving or deleting the old files. The 0.3.1 server does not automatically read browser storage.
+If you cannot open the old app, open its original `panelbook.html` at the same path in the same browser to recover its browser storage. Opening the new HTML file with `file://` offers **Export data from this browser** when version 4 data is available for that file's origin. Export before moving or deleting the old files. The 0.3.2 server does not automatically read browser storage.
 
 ## Accounts and sharing
 
@@ -55,4 +57,4 @@ Panel layout and wire warnings are documentation aids. Check the actual panel la
 
 ## Development
 
-The server uses Python's standard library, SQLite, and static HTML/CSS/JavaScript. Run `python -m unittest discover -s tests -v` for its integration tests. To build the Windows portable executable, install PyInstaller and run `python -m PyInstaller --onefile --console --name Panelbook program/server.py`, then `python scripts/package_release.py`. The packager puts `Panelbook.cmd` and this README at the ZIP root and the executable, HTML, JavaScript, CSS, and updater script in `program/`. Publish only `Panelbook-Portable-vX.Y.Z.zip`; never package `data/`. On Windows, run `python tests/smoke_updater_windows.py` after packaging to verify the restart.
+The server uses Python's standard library, SQLite, and static HTML/CSS/JavaScript. Run `python -m unittest discover -s tests -v` for its integration tests. To build the Windows portable executable, install PyInstaller and run `python -m PyInstaller --onefile --console --name Panelbook program/server.py`, then `python scripts/package_release.py`. The packager puts `Panelbook.cmd` and this README at the ZIP root and the executable, HTML, JavaScript, CSS, and updater script in `program/`. Publish only `Panelbook-Portable-vX.Y.Z.zip`; never package `data/`. On Windows, run `python tests/smoke_updater_windows.py` and `python tests/smoke_launcher_windows.py` after packaging to verify the updater and launcher.

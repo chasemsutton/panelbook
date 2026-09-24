@@ -1,7 +1,7 @@
-# Panelbook 0.3.1
+# Panelbook 0.3.2
 
-When opening Panelbook on the same machine for the first time, choose **Continue locally without a login** to start without a username or password. Local-only workspaces reopen automatically from the local address and cannot be used from another machine.
+The Windows `Panelbook.cmd` launcher now minimizes its console window as it starts the server.
 
-Use **Create login** in the app whenever you want a username and password. Conversion keeps your existing homes and panels, then enables sign-in, user management, and sharing. Existing 0.3.0 accounts continue to work.
+Local-only workspaces have an optional **Close server when all tabs close** setting. When enabled, closing the last Panelbook tab stops the server after a short grace period. Refreshing a tab or keeping another Panelbook tab open leaves it running. The setting is off by default and is saved with the workspace.
 
-Windows portable users can install this release with **Check for updates**. Versions 0.2.0 and 0.2.1 still require the manual migration described in README.md.
+Windows portable versions 0.3.0 and 0.3.1 can install this release with **Check for updates**. Versions 0.2.0 and 0.2.1 still require the manual migration described in README.md.

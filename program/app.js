@@ -19,6 +19,8 @@
   let csrfToken = null;
   let currentUser = null;
   let currentVersion = null;
+  let localTabId = null;
+  let localPresenceTimer = null;
   let savedHomes = new Map();
   let saveQueue = Promise.resolve();
   let saveBlocked = false;
@@ -638,6 +640,9 @@
   function showAccountControls(status) {
     csrfToken=status.csrf;currentUser=status.user;currentVersion=status.version;
     el("signedInAs").textContent=currentUser.isLocal?"Local only":currentUser.username;
+    el("autoCloseControl").hidden=!currentUser.isLocal;
+    el("autoCloseCheckbox").checked=!!status.autoClose;
+    if(!currentUser.isLocal && localPresenceTimer){clearInterval(localPresenceTimer);localPresenceTimer=null;localTabId=null;}
     el("convertLoginBtn").hidden=!currentUser.isLocal;
     el("manageUsersBtn").hidden=!currentUser.isAdmin || currentUser.isLocal;
     el("changePasswordBtn").hidden=currentUser.isLocal;
@@ -650,6 +655,20 @@
     if(!appEventsWired){wireEvents();appEventsWired=true;}
     document.body.classList.remove("locked");
     renderAll();
+    if(currentUser.isLocal)startLocalPresence();
+  }
+  async function reportLocalPresence() {
+    if(!localTabId || !currentUser?.isLocal)return;
+    try {
+      const result=await api("/api/local/presence","POST",{tabId:localTabId,active:true});
+      if(currentUser?.isLocal)el("autoCloseCheckbox").checked=result.autoClose;
+    } catch { /* A later heartbeat can reconnect. */ }
+  }
+  function startLocalPresence() {
+    if(localTabId)return;
+    localTabId=crypto.randomUUID();
+    reportLocalPresence();
+    localPresenceTimer=setInterval(reportLocalPresence,15000);
   }
   function offerLegacyExport(message) {
     el("authTitle").textContent="Start Panelbook";
@@ -670,6 +689,23 @@
     el("shareMembers").innerHTML=members.members.map(member=>`<div><span>${escapeHTML(member.username)} · ${member.role}</span>${member.role==="owner"?"":`<button class="button" type="button" data-remove-user="${member.id}">Remove</button>`}</div>`).join("");
   }
   function wireAccountEvents() {
+    window.addEventListener("pagehide",()=>{
+      if(!localTabId || !currentUser?.isLocal)return;
+      fetch("/api/local/presence",{method:"POST",credentials:"same-origin",keepalive:true,
+        headers:{"Content-Type":"application/json","X-Panelbook-CSRF":csrfToken},
+        body:JSON.stringify({tabId:localTabId,active:false})}).catch(()=>{});
+    });
+    window.addEventListener("pageshow",()=>{if(localTabId)reportLocalPresence();});
+    el("autoCloseCheckbox").addEventListener("change",async()=>{
+      const checkbox=el("autoCloseCheckbox"),enabled=checkbox.checked;
+      checkbox.disabled=true;
+      try{
+        const result=await api("/api/local/auto-close","POST",{enabled});
+        checkbox.checked=result.autoClose;
+        notify(enabled?"Panelbook will close after all its tabs close.":"Automatic server close turned off.",true);
+      }catch(error){checkbox.checked=!enabled;notify(error.message);}
+      finally{checkbox.disabled=false;}
+    });
     el("localOnlyBtn").addEventListener("click",async()=>{
       el("authError").textContent="";el("localOnlyBtn").disabled=true;
       try{

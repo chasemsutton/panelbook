@@ -4,6 +4,7 @@ import json
 import sqlite3
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -46,13 +47,13 @@ class Client:
 class ServerTests(unittest.TestCase):
     def test_update_uses_single_portable_asset(self):
         releases = [
-            {"tag_name": "v0.3.3", "assets": [{"name": "Panelbook-Windows-v0.3.3.zip", "digest": "sha256:" + "a" * 64}]},
-            {"tag_name": "v0.3.2", "assets": [{"name": "Panelbook-Portable-v0.3.2.zip", "digest": "sha256:" + "b" * 64,
+            {"tag_name": "v0.3.4", "assets": [{"name": "Panelbook-Windows-v0.3.4.zip", "digest": "sha256:" + "a" * 64}]},
+            {"tag_name": "v0.3.3", "assets": [{"name": "Panelbook-Portable-v0.3.3.zip", "digest": "sha256:" + "b" * 64,
                                                   "browser_download_url": "https://example.test/release.zip"}]},
         ]
         with patch("program.server.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(releases).encode())):
             release = available_release()
-        self.assertEqual(release["version"], "v0.3.2")
+        self.assertEqual(release["version"], "v0.3.3")
         self.assertEqual(release["digest"], "b" * 64)
 
     def setUp(self):
@@ -144,6 +145,78 @@ class ServerTests(unittest.TestCase):
         initialize_database(old_db)
         with closing(sqlite3.connect(old_db)) as db:
             self.assertEqual(db.execute("SELECT is_local FROM users WHERE username='existing'").fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT auto_close FROM users WHERE username='existing'").fetchone()[0], 0)
+
+    def test_auto_close_waits_for_all_local_tabs_and_reload(self):
+        local = Client(self.base)
+        local.status()
+        code, _ = local.request("/api/setup/local", "POST", {})
+        self.assertEqual(code, 201)
+        _, status = local.status()
+        self.assertFalse(status["autoClose"])
+        self.server.presence_grace = 2
+        self.server.presence_lease = 5
+        code, result = local.request("/api/local/auto-close", "POST", {"enabled": True})
+        self.assertEqual(code, 200)
+        self.assertTrue(result["autoClose"])
+        restarted = PanelbookServer(("127.0.0.1", 0), self.db, local_mode=True)
+        self.assertTrue(restarted.auto_close_enabled)
+        restarted.server_close()
+        tab_a, tab_b, tab_c = "a" * 24, "b" * 24, "c" * 24
+        for tab in (tab_a, tab_b):
+            code, _ = local.request("/api/local/presence", "POST", {"tabId": tab, "active": True})
+            self.assertEqual(code, 200)
+        code, _ = local.request("/api/local/presence", "POST", {"tabId": tab_a, "active": False})
+        self.assertEqual(code, 200)
+        time.sleep(1.2)
+        self.assertTrue(self.thread.is_alive())
+        # A page reload closes the old tab before the replacement registers.
+        code, _ = local.request("/api/local/presence", "POST", {"tabId": tab_b, "active": False})
+        self.assertEqual(code, 200)
+        time.sleep(1.5)
+        self.assertTrue(self.thread.is_alive())
+        code, _ = local.request("/api/local/presence", "POST", {"tabId": tab_c, "active": True})
+        self.assertEqual(code, 200)
+        time.sleep(2.2)
+        self.assertTrue(self.thread.is_alive())
+        code, _ = local.request("/api/local/presence", "POST", {"tabId": tab_c, "active": False})
+        self.assertEqual(code, 200)
+        self.thread.join(timeout=5)
+        self.assertFalse(self.thread.is_alive())
+
+    def test_auto_close_can_be_disabled(self):
+        local = Client(self.base)
+        local.status()
+        code, _ = local.request("/api/setup/local", "POST", {})
+        self.assertEqual(code, 201)
+        local.status()
+        self.server.presence_grace = 0.5
+        tab = "a" * 24
+        local.request("/api/local/auto-close", "POST", {"enabled": True})
+        local.request("/api/local/presence", "POST", {"tabId": tab, "active": True})
+        code, result = local.request("/api/local/auto-close", "POST", {"enabled": False})
+        self.assertEqual(code, 200)
+        self.assertFalse(result["autoClose"])
+        local.request("/api/local/presence", "POST", {"tabId": tab, "active": False})
+        time.sleep(1.2)
+        self.assertTrue(self.thread.is_alive())
+        _, status = local.status()
+        self.assertFalse(status["autoClose"])
+        with closing(sqlite3.connect(self.db)) as db:
+            self.assertEqual(db.execute("SELECT auto_close FROM users WHERE is_local=1").fetchone()[0], 0)
+
+    def test_auto_close_requires_local_identity(self):
+        owner = Client(self.base)
+        owner.status()
+        code, _ = owner.request("/api/setup", "POST", {
+            "username": "owner", "password": "a long sample password", "setupToken": self.server.setup_token
+        })
+        self.assertEqual(code, 201)
+        owner.status()
+        code, _ = owner.request("/api/local/auto-close", "POST", {"enabled": True})
+        self.assertEqual(code, 403)
+        code, _ = owner.request("/api/local/presence", "POST", {"tabId": "a" * 24, "active": True})
+        self.assertEqual(code, 403)
 
     def test_setup_sharing_conflict_and_legacy_import(self):
         owner = Client(self.base)
