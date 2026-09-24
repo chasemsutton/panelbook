@@ -4,7 +4,7 @@ Panelbook runs in Docker Compose inside a Linux VM. The one-file `compose.pull.y
 
 ## Arcane: deploy from one Compose file
 
-In Arcane, create a project named `panelbook` and paste the contents of [`compose.pull.yaml`](compose.pull.yaml) as its Compose configuration. Set `PANELBOOK_BIND_IP` in Arcane's environment editor if you want to bind TCP 8765 to a particular VM interface; without it, Docker listens on all IPv4 interfaces. Choose **Deploy**. Arcane pulls `ghcr.io/chasemsutton/panelbook:latest`; no Dockerfile, source files, or separate image host are needed. The one-time `prepare-data` service gives the image's non-root user ownership of `/var/panelbook/data` before Panelbook starts, including when Docker creates the host directory as root. The database is stored on the VM at `/var/panelbook/data`; `/data` is its path inside the container. To update later, redeploy the project. Compose pulls the current `latest` image each time; running containers do not update themselves. For a fixed version, replace both `latest` image tags with the release number and remove both `pull_policy: always` lines.
+In Arcane, create a project named `panelbook` and paste the contents of [`compose.pull.yaml`](compose.pull.yaml) as its Compose configuration. Set `PANELBOOK_BIND_IP` in Arcane's environment editor if you want to bind TCP 8765 to a particular VM interface; without it, Docker listens on all IPv4 interfaces. Choose **Deploy**. Arcane pulls `ghcr.io/chasemsutton/panelbook:latest`; no Dockerfile, source files, or separate image host are needed. The `pre_start` hook gives the image's non-root user ownership of `/var/panelbook/data` before Panelbook starts, including when Docker creates the host directory as root. It leaves only the running Panelbook service in Arcane. The database is stored on the VM at `/var/panelbook/data`; `/data` is its path inside the container. To update later, redeploy the project. Compose pulls the current `latest` image each time; running containers do not update themselves. For a fixed version, replace `latest` with the release number and remove `pull_policy: always`.
 
 Allow TCP 8765 only from your NGINX machine with the VM or Proxmox firewall. Access Panelbook through the HTTPS domain on NGINX, including from the LAN. The direct VM HTTP address does not support hosted login because the app uses `Secure` cookies. The NGINX configuration and LAN DNS steps are below.
 
@@ -22,30 +22,11 @@ The included `compose.yaml` is ready to use after setting `.env`. Its contents a
 name: panelbook
 
 services:
-  prepare-data:
-    build: .
-    user: "0:0"
-    command: ["sh", "-c", "chown -R panelbook:panelbook /data"]
-    restart: "no"
-    read_only: true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - DAC_OVERRIDE
-    security_opt:
-      - no-new-privileges:true
-    network_mode: none
-    healthcheck:
-      disable: true
-    volumes:
-      - /var/panelbook/data:/data
-
   panelbook:
     build: .
-    depends_on:
-      prepare-data:
-        condition: service_completed_successfully
+    pre_start:
+      - command: ["sh", "-c", "chown -R panelbook:panelbook /data"]
+        user: "0:0"
     init: true
     restart: unless-stopped
     read_only: true
