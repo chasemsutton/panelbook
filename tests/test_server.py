@@ -1,4 +1,5 @@
 import http.cookiejar
+import io
 import json
 import tempfile
 import threading
@@ -6,8 +7,9 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest.mock import patch
 
-from program.server import PanelbookServer, initialize_database
+from program.server import PanelbookServer, available_release, initialize_database
 
 
 class Client:
@@ -40,6 +42,17 @@ class Client:
 
 
 class ServerTests(unittest.TestCase):
+    def test_update_uses_single_portable_asset(self):
+        releases = [
+            {"tag_name": "v0.3.2", "assets": [{"name": "Panelbook-Windows-v0.3.2.zip", "digest": "sha256:" + "a" * 64}]},
+            {"tag_name": "v0.3.1", "assets": [{"name": "Panelbook-Portable-v0.3.1.zip", "digest": "sha256:" + "b" * 64,
+                                                  "browser_download_url": "https://example.test/release.zip"}]},
+        ]
+        with patch("program.server.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(releases).encode())):
+            release = available_release()
+        self.assertEqual(release["version"], "v0.3.1")
+        self.assertEqual(release["digest"], "b" * 64)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.db = Path(self.temp.name) / "data" / "panelbook.sqlite3"

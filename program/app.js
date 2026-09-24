@@ -18,6 +18,7 @@
   let availableUpdate = null;
   let csrfToken = null;
   let currentUser = null;
+  let currentVersion = null;
   let savedHomes = new Map();
   let saveQueue = Promise.resolve();
   let saveBlocked = false;
@@ -73,8 +74,26 @@
       await saveQueue;
       if(saveBlocked || workbook.homes.some(h=>h.role!=="viewer" && homeSnapshot(h)!==savedHomes.get(h.id)))
         throw Error("Some changes are not saved yet. Export a backup or reload before updating.");
-      el("updateMessage").textContent="Starting the installer. Panelbook will close and reopen in a moment…";
+      el("updateMessage").textContent="Installing the update. This page will reload when Panelbook restarts…";
       await api("/api/update/install","POST",{version:availableUpdate.version});
+      const expectedVersion=availableUpdate.version.replace(/^v/,"");
+      const deadline=Date.now()+300000;
+      let wasOffline=false;
+      while(Date.now()<deadline) {
+        await new Promise(resolve=>setTimeout(resolve,1000));
+        try {
+          const response=await fetch("/api/status",{cache:"no-store"});
+          if(!response.ok)continue;
+          const status=await response.json();
+          if(status.version===expectedVersion){location.reload();return;}
+          if(wasOffline && status.version===currentVersion)
+            throw Error("The update failed and the previous version restarted. See data/updater.log in your Panelbook folder.");
+        } catch(error) {
+          if(error.message.startsWith("The update failed"))throw error;
+          wasOffline=true;
+        }
+      }
+      throw Error("Panelbook did not return in five minutes. Check data/updater.log in your Panelbook folder, then run Panelbook.cmd if needed.");
     }
     catch(error) { el("updateMessage").textContent=error.message; el("updateInstallBtn").disabled=false; }
   }
@@ -617,7 +636,7 @@
     await loadWorkspace();selected=1;renderAll();notify(`${count} home${count===1?"":"s"} imported.`,true);
   }
   async function enterApp(status) {
-    csrfToken=status.csrf;currentUser=status.user;
+    csrfToken=status.csrf;currentUser=status.user;currentVersion=status.version;
     el("signedInAs").textContent=currentUser.username;
     el("manageUsersBtn").hidden=!currentUser.isAdmin;
     el("updateActions").hidden=!status.canUpdate;

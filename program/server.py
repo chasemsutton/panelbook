@@ -21,7 +21,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-VERSION = "0.2.1"
+VERSION = "0.3.0"
 ROOT = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 PROGRAM_LAYOUT = ROOT.name.lower() == "program"
 APP_ROOT = ROOT.parent if PROGRAM_LAYOUT else ROOT
@@ -50,7 +50,7 @@ def available_release():
         version = version_tuple(release.get("tag_name", ""))
         if release.get("draft") or release.get("prerelease") or version is None or version <= current:
             continue
-        name = ("Panelbook-Portable-%s.zip" if PROGRAM_LAYOUT else "Panelbook-Windows-%s.zip") % release["tag_name"]
+        name = "Panelbook-Portable-%s.zip" % release["tag_name"]
         asset = next((item for item in release.get("assets", []) if item.get("name") == name), None)
         if asset and asset.get("digest", "").startswith("sha256:"):
             return {"version": release["tag_name"], "url": asset["browser_download_url"], "digest": asset["digest"][7:]}
@@ -366,7 +366,7 @@ class PanelbookHandler(BaseHTTPRequestHandler):
         with database(self.server.db_path) as db:
             if path == "/api/update/check":
                 user = self.require_user(db)
-                if not self.server.local_mode or not user["is_admin"] or os.name != "nt" or not getattr(sys, "frozen", False):
+                if not self.server.local_mode or not user["is_admin"] or os.name != "nt" or not getattr(sys, "frozen", False) or not PROGRAM_LAYOUT:
                     raise ApiError(403, "Automatic updates require the Windows portable app and an administrator account.")
                 try:
                     release = available_release()
@@ -378,7 +378,7 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 user = self.session(db)
                 needs_setup = db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
                 self.json_response({"version": VERSION, "needsSetup": needs_setup, "localMode": self.server.local_mode,
-                                    "canUpdate": bool(user and user["is_admin"] and self.server.local_mode and os.name == "nt" and getattr(sys, "frozen", False)),
+                                    "canUpdate": bool(user and user["is_admin"] and self.server.local_mode and os.name == "nt" and getattr(sys, "frozen", False) and PROGRAM_LAYOUT),
                                     "user": None if user is None else {"id": user["id"], "username": user["username"], "isAdmin": bool(user["is_admin"])},
                                     "csrf": None if user is None else user["csrf"]})
                 return
@@ -483,7 +483,7 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 self.json_response({"homes": imported}, 201)
                 return
             if path == "/api/update/install":
-                if not self.server.local_mode or not user["is_admin"] or os.name != "nt" or not getattr(sys, "frozen", False):
+                if not self.server.local_mode or not user["is_admin"] or os.name != "nt" or not getattr(sys, "frozen", False) or not PROGRAM_LAYOUT:
                     raise ApiError(403, "Automatic updates require the Windows portable app and an administrator account.")
                 if not (ROOT / "update-portable.ps1").is_file():
                     raise ApiError(500, "The update helper is missing from the app folder.")
@@ -493,11 +493,15 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                     raise ApiError(503, "Could not check GitHub releases: %s" % error)
                 if release is None or release["version"] != data.get("version"):
                     raise ApiError(409, "The chosen update is no longer available. Check again.")
-                subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-                                  str(ROOT / "update-portable.ps1"), "-AppFolder", str(APP_ROOT),
-                                  "-Layout", "program" if PROGRAM_LAYOUT else "flat",
-                                  "-ServerPid", str(os.getpid()), "-DownloadUrl", release["url"],
-                                  "-ExpectedSha256", release["digest"]],
+                command = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                           str(ROOT / "update-portable.ps1"), "-AppFolder", str(APP_ROOT),
+                           "-ServerPid", str(os.getpid()), "-DownloadUrl", release["url"],
+                           "-ExpectedSha256", release["digest"], "-ExpectedVersion", release["version"],
+                           "-HostName", self.server.server_address[0], "-Port", str(self.server.server_address[1]),
+                           "-DataDir", str(self.server.db_path.parent)]
+                if self.server.secure_cookies:
+                    command.append("-SecureCookies")
+                subprocess.Popen(command,
                                  creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 db.commit()
