@@ -23,7 +23,12 @@ jobs:
           sed -i 's/192.168.1.50/127.0.0.1/' .env
           docker compose config --quiet
           docker compose -f compose.pull.yaml config --quiet
-          docker compose up -d --build
+          docker compose build
+          sudo mkdir -p /var/panelbook/data
+          uid=$(docker compose run --rm --no-deps --entrypoint id panelbook -u)
+          gid=$(docker compose run --rm --no-deps --entrypoint id panelbook -g)
+          sudo chown "$uid:$gid" /var/panelbook/data
+          docker compose up -d
       - name: Check hosted status
         run: |
           python - <<'PY'

@@ -4,7 +4,18 @@ Panelbook runs in Docker Compose inside a Linux VM. The one-file `compose.pull.y
 
 ## Arcane: deploy from one Compose file
 
-In Arcane, create a project named `panelbook` and paste the contents of [`compose.pull.yaml`](compose.pull.yaml) as its Compose configuration. Set `PANELBOOK_BIND_IP` in Arcane's environment editor if you want to bind TCP 8765 to a particular VM interface; without it, Docker listens on all IPv4 interfaces. Choose **Deploy**. Arcane pulls `ghcr.io/chasemsutton/panelbook:latest`; no Dockerfile, source files, or separate image host are needed. Keep the `panelbook_data` volume when redeploying. To update later, redeploy the project. Compose pulls the current `latest` image each time; running containers do not update themselves. For a fixed version, replace `latest` with the release number and remove `pull_policy: always`.
+On the Docker VM, prepare the persistent host directory once. The image runs as a non-root user, so the directory must belong to that user:
+
+```sh
+sudo mkdir -p /var/panelbook/data
+image=ghcr.io/chasemsutton/panelbook:latest
+docker pull "$image"
+uid=$(docker run --rm --entrypoint id "$image" -u)
+gid=$(docker run --rm --entrypoint id "$image" -g)
+sudo chown "$uid:$gid" /var/panelbook/data
+```
+
+In Arcane, create a project named `panelbook` and paste the contents of [`compose.pull.yaml`](compose.pull.yaml) as its Compose configuration. Set `PANELBOOK_BIND_IP` in Arcane's environment editor if you want to bind TCP 8765 to a particular VM interface; without it, Docker listens on all IPv4 interfaces. Choose **Deploy**. Arcane pulls `ghcr.io/chasemsutton/panelbook:latest`; no Dockerfile, source files, or separate image host are needed. The database is stored on the VM at `/var/panelbook/data`; `/data` is its path inside the container. To update later, redeploy the project. Compose pulls the current `latest` image each time; running containers do not update themselves. For a fixed version, replace `latest` with the release number and remove `pull_policy: always`.
 
 Allow TCP 8765 only from your NGINX machine with the VM or Proxmox firewall. Access Panelbook through the HTTPS domain on NGINX, including from the LAN. The direct VM HTTP address does not support hosted login because the app uses `Secure` cookies. The NGINX configuration and LAN DNS steps are below.
 
@@ -34,12 +45,9 @@ services:
     tmpfs:
       - /tmp:rw,nosuid,noexec,size=64m
     volumes:
-      - panelbook_data:/data
+      - /var/panelbook/data:/data
     ports:
       - "${PANELBOOK_BIND_IP:?Set PANELBOOK_BIND_IP in .env}:8765:8765"
-volumes:
-  panelbook_data:
-    name: panelbook_data
 ```
 
 ## 2. Start Panelbook
@@ -49,11 +57,16 @@ From the extracted directory, run:
 ```sh
 cp .env.example .env
 # Edit .env to use this VM's private IP before continuing.
-docker compose up -d --build
+docker compose build
+sudo mkdir -p /var/panelbook/data
+uid=$(docker compose run --rm --no-deps --entrypoint id panelbook -u)
+gid=$(docker compose run --rm --no-deps --entrypoint id panelbook -g)
+sudo chown "$uid:$gid" /var/panelbook/data
+docker compose up -d
 docker compose ps
 ```
 
-The container runs as a non-root user with a read-only filesystem; only its named `panelbook_data` volume is writable. Compose keeps this volume across container rebuilds. The server uses secure, HTTP-only session cookies and disables the Windows in-app updater and local-only login on this hosted address.
+The container runs as a non-root user with a read-only filesystem; only the bind-mounted data directory is writable. Compose keeps this host directory across container rebuilds. The server uses secure, HTTP-only session cookies and disables the Windows in-app updater and local-only login on this hosted address.
 
 ## 3. Configure NGINX and HTTPS
 
@@ -94,12 +107,26 @@ Sign in with the login created on Windows. The home and sharing data are preserv
 
 ## Back up and update
 
-The SQLite database lives in the Docker volume named `panelbook_data`. Stop the server before copying a filesystem backup so the SQLite database and its write-ahead log are consistent:
+The SQLite database lives in `/var/panelbook/data` on the VM. Stop the server before copying a filesystem backup so the SQLite database and its write-ahead log are consistent:
 
 ```sh
 docker compose stop panelbook
-docker run --rm -v panelbook_data:/data:ro -v "$PWD":/backup alpine tar -czf /backup/panelbook-data-backup.tgz -C /data .
+sudo tar -czf "$PWD/panelbook-data-backup.tgz" -C /var/panelbook/data .
 docker compose start panelbook
 ```
 
-Keep a backup outside the VM as well. To update, save a backup, extract the new server ZIP over the existing app files (keep `.env`), and run `docker compose up -d --build`. The named volume and accounts stay in place. Check `docker compose ps` and `docker compose logs --tail=50 panelbook` after updating. Do not run `docker compose down -v`, which removes the database volume.
+Keep a backup outside the VM as well. To update a source build, save a backup, extract the new server ZIP over the existing app files (keep `.env`), and run `docker compose up -d --build`. The host directory and accounts stay in place. For an Arcane deployment, redeploy the project to pull the latest image. Check the container status and logs after updating.
+
+If you previously deployed with the `panelbook_data` named volume, copy its contents to `/var/panelbook/data` while Panelbook is stopped before switching to the bind mount. Otherwise the new path starts with an empty database:
+
+```sh
+docker compose stop panelbook
+docker volume inspect panelbook_data >/dev/null
+sudo mkdir -p /var/panelbook/data
+docker run --rm -v panelbook_data:/from:ro -v /var/panelbook/data:/to alpine sh -c 'cp -a /from/. /to/'
+image=ghcr.io/chasemsutton/panelbook:latest
+docker pull "$image"
+uid=$(docker run --rm --entrypoint id "$image" -u)
+gid=$(docker run --rm --entrypoint id "$image" -g)
+sudo chown -R "$uid:$gid" /var/panelbook/data
+```

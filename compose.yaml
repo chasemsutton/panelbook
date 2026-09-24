@@ -13,9 +13,6 @@ services:
     tmpfs:
       - /tmp:rw,nosuid,noexec,size=64m
     volumes:
-      - panelbook_data:/data
+      - /var/panelbook/data:/data
     ports:
       - "${PANELBOOK_BIND_IP:?Set PANELBOOK_BIND_IP in .env}:8765:8765"
-volumes:
-  panelbook_data:
-    name: panelbook_data
