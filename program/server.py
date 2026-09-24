@@ -23,7 +23,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-VERSION = "0.5.0"
+VERSION = "0.5.0.1"
 ROOT = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 PROGRAM_LAYOUT = ROOT.name.lower() == "program"
 APP_ROOT = ROOT.parent if PROGRAM_LAYOUT else ROOT
@@ -38,9 +38,8 @@ RELEASES_URL = "https://api.github.com/repos/chasemsutton/panelbook/releases?per
 
 
 def version_tuple(value):
-    import re
-    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", value)
-    return tuple(map(int, match.groups())) if match else None
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?", value)
+    return tuple(int(part or 0) for part in match.groups()) if match else None
 
 
 def available_release():
@@ -48,7 +47,7 @@ def available_release():
     with urllib.request.urlopen(request, timeout=15) as response:
         releases = json.load(response)
     current = version_tuple(VERSION)
-    for release in sorted(releases, key=lambda item: version_tuple(item.get("tag_name", "")) or (0, 0, 0), reverse=True):
+    for release in sorted(releases, key=lambda item: version_tuple(item.get("tag_name", "")) or (0, 0, 0, 0), reverse=True):
         version = version_tuple(release.get("tag_name", ""))
         if release.get("draft") or release.get("prerelease") or version is None or version <= current:
             continue
@@ -221,6 +220,11 @@ def initialize_database(path):
             db.execute("ALTER TABLE users ADD COLUMN is_local INTEGER NOT NULL DEFAULT 0")
         if "auto_close" not in {row["name"] for row in db.execute("PRAGMA table_info(users)")}:
             db.execute("ALTER TABLE users ADD COLUMN auto_close INTEGER NOT NULL DEFAULT 0")
+        if db.execute("PRAGMA user_version").fetchone()[0] < 1:
+            # 0.5.0 left local workspaces running invisibly unless users found
+            # the checkbox. Make the new default effective once on upgrade.
+            db.execute("UPDATE users SET auto_close=1 WHERE is_local=1")
+            db.execute("PRAGMA user_version=1")
 
 
 def create_home(db, user_id, name="Home", panels=None):
@@ -516,11 +520,12 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 db.execute("BEGIN IMMEDIATE")
                 if db.execute("SELECT COUNT(*) FROM users").fetchone()[0]:
                     raise ApiError(409, "Initial setup is complete.")
-                cursor = db.execute("INSERT INTO users(username,password_hash,is_admin,is_local) VALUES('Local','',1,1)")
+                cursor = db.execute("INSERT INTO users(username,password_hash,is_admin,is_local,auto_close) VALUES('Local','',1,1,1)")
                 create_home(db, cursor.lastrowid)
                 token = self.create_session(db, cursor.lastrowid)
                 db.commit()
                 self.server.setup_token = ""
+                self.server.set_auto_close(True)
                 self.json_response({"ok": True}, 201, self.session_cookie(token))
                 return
             if path == "/api/login":

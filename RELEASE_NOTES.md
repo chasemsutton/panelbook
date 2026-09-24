@@ -1,7 +1,7 @@
-# Panelbook 0.5.0
+# Panelbook 0.5.0.1
 
-The Windows portable app now has a branded `Panelbook.exe` at the top level. It opens without a console window, starts the local server, and opens Panelbook in the browser. Click the launcher again to reopen the page while the server is running. The server still supports the local-only option to close when all tabs close. GUI updates from 0.5.0 onward update both executables and the app files.
+The Windows portable app now enables **Close server when all tabs close** by default for local-only workspaces. This fits the invisible launcher: after the last browser tab closes, Panelbook stops automatically. The setting can still be turned off; the first launch of an existing local workspace enables it once, and later changes persist.
 
-This release changes the executable layout. Install 0.5.0 in a new folder instead of using the 0.4.x GUI updater. JSON export and import remain available for moving homes and panels. `program/Panelbook.cmd` is available as a fallback and for source launches.
+The updater now understands four-part version numbers for future releases. Version 0.5.0 cannot discover this tag because its release check only accepts three-part versions. To move from 0.5.0, close Panelbook, extract the new portable ZIP, copy your existing `data/` folder into it, and run the new top-level `Panelbook.exe`. JSON export and import remain available.
 
-The Windows and hosted packages are `Panelbook-Portable-v0.5.0.zip` and `Panelbook-Server-v0.5.0.zip`.
+The Windows and hosted packages are `Panelbook-Portable-v0.5.0.1.zip` and `Panelbook-Server-v0.5.0.1.zip`.

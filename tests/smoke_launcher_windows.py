@@ -86,8 +86,9 @@ def main():
             csrf = None
             request("/api/setup/local", {})
             with opener.open(base + "/api/status") as response:
-                csrf = json.load(response)["csrf"]
-            request("/api/local/auto-close", {"enabled": True})
+                startup_status = json.load(response)
+                csrf = startup_status["csrf"]
+                assert startup_status["autoClose"], startup_status
             request("/api/local/presence", {"tabId": "a" * 24, "active": True})
             request("/api/local/presence", {"tabId": "a" * 24, "active": False})
             for _ in range(20):

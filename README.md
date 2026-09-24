@@ -1,10 +1,10 @@
-# Panelbook 0.5.0
+# Panelbook 0.5.0.1
 
-Panelbook stores electrical panel directories in a local SQLite database and opens its interface in a browser. Version 0.5.0 adds a branded Windows launcher that starts without a visible console. Separate Windows portable and Proxmox server packages include account sharing with viewer or editor access.
+Panelbook stores electrical panel directories in a local SQLite database and opens its interface in a browser. Version 0.5.0.1 closes the invisible local server after the last browser tab closes by default. Separate Windows portable and Proxmox server packages include account sharing with viewer or editor access.
 
 ## Windows portable app
 
-1. Download `Panelbook-Portable-v0.5.0.zip` from the [0.5.0 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0) and extract it to a folder you can keep.
+1. Download `Panelbook-Portable-v0.5.0.1.zip` from the [0.5.0.1 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.1) and extract it to a folder you can keep.
 2. Double-click **`Panelbook.exe`** at the top level. It starts the local server without a console window and opens `http://127.0.0.1:8765/` in your usual browser. Pin `Panelbook.exe` to the taskbar if you want a one-click launcher. Clicking it again while the server is running opens the page in your browser.
 3. Choose **Continue locally without a login** to use Panelbook only from this machine, or create a login for accounts and sharing. When creating a login, the setup code is filled automatically when the launcher opens the page.
 
@@ -26,19 +26,21 @@ data/                  ← created on first launch
 
 Homes are stored in `data/panelbook.sqlite3` beside the launcher. Keep `data/` when moving the app and back it up regularly. A local-only workspace opens automatically at the local address and is unavailable from other machines. Choose **Create login** in the app to add a username and password later; your homes and panels stay in place. Panelbook works offline after installation; checking for updates needs GitHub access.
 
-In a local-only workspace, select **Close server when all tabs close** to stop Panelbook after the last browser tab closes. The setting is off by default and persists across launches. A short delay lets page reloads reconnect; if the browser exits without sending a close event, the server stops after its tab heartbeat expires (about three minutes). The setting is removed when you create a login.
+In a local-only workspace, **Close server when all tabs close** is on by default. A short delay lets page reloads reconnect; if the browser exits without sending a close event, the server stops after its tab heartbeat expires (about three minutes). You can turn the setting off, and that choice persists across launches. On the first launch after upgrading an existing local workspace, 0.5.0.1 turns the setting on once; later choices persist. The setting is removed when you create a login.
 
 The local administrator's **Check for updates** button downloads a newer portable release, checks its SHA-256 digest, replaces app files, and restarts Panelbook. The open browser tab reloads when the new server is ready. It preserves the database in `data/`. If copying or startup fails, the helper restores and restarts the previous app, and writes details to `data/updater.log`. Hosted installations are updated by redeploying the server.
 
-**Moving from 0.4.x to 0.5.0:** This release changes the Windows executable layout. Extract it to a new folder and run the new top-level `Panelbook.exe`. The old GUI updater is not used for this move. Export your homes as JSON in the old version and import them in 0.5.0 if you want to move data. Keep your old folder until you have checked the import. GUI updates from 0.5.0 onward use the new layout.
+**Moving from 0.4.x:** Version 0.5 changed the Windows executable layout. Extract 0.5.0.1 to a new folder and run the top-level `Panelbook.exe`. The old GUI updater is not used for this move. Export your homes as JSON in the old version and import them in 0.5.0.1 if you want to move data. Keep your old folder until you have checked the import.
+
+**Moving from 0.5.0 to 0.5.0.1:** The 0.5.0 updater only recognizes three-part version tags, so it cannot discover `0.5.0.1`. Close Panelbook, extract the new portable ZIP, and copy your `data/` folder into the new folder. Run the new top-level `Panelbook.exe`. Future four-part version updates can use the GUI button.
 
 `program/Panelbook.cmd` also runs the source version if Python 3.11 or newer is installed and `program/PanelbookServer.exe` is absent. In that mode, start it with `python program/server.py` or the CMD fallback; app updates are done with Git or a new source archive. The portable launcher writes server output to `data/server.stdout.log` and errors to `data/server.stderr.log`.
 
 ## Importing 0.1.4 data
 
-In 0.1.4, choose **Export JSON → Everything** in the browser where your old data appears. Then open 0.5.0 and choose **Import JSON**. It accepts version 4 exports of an individual panel, a home, or everything. Imported homes are added to the workspace; existing homes remain available. A panel export can be added or used to replace a panel.
+In 0.1.4, choose **Export JSON → Everything** in the browser where your old data appears. Then open 0.5.0.1 and choose **Import JSON**. It accepts version 4 exports of an individual panel, a home, or everything. Imported homes are added to the workspace; existing homes remain available. A panel export can be added or used to replace a panel.
 
-If you cannot open the old app, open its original `panelbook.html` at the same path in the same browser to recover its browser storage. Opening the new HTML file with `file://` offers **Export data from this browser** when version 4 data is available for that file's origin. Export before moving or deleting the old files. The 0.5.0 server does not automatically read browser storage.
+If you cannot open the old app, open its original `panelbook.html` at the same path in the same browser to recover its browser storage. Opening the new HTML file with `file://` offers **Export data from this browser** when version 4 data is available for that file's origin. Export before moving or deleting the old files. The 0.5.0.1 server does not automatically read browser storage.
 
 ## Accounts and sharing
 
@@ -46,7 +48,7 @@ The first login is an administrator. Use **Users** to add accounts, then **Share
 
 ## Home server
 
-Download `Panelbook-Server-v0.5.0.zip` from the [0.5.0 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0). Follow [README-HOSTING.md](README-HOSTING.md) for a Proxmox Linux VM, Docker Compose, a separate NGINX machine, HTTPS, firewall access, backup, and updates. The server package includes `compose.yaml` and its full example in the hosting README. It has source files and no Windows executable. Set the VM's private bind IP in `.env`; the database remains in a named Docker volume.
+Download `Panelbook-Server-v0.5.0.1.zip` from the [0.5.0.1 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.1). Follow [README-HOSTING.md](README-HOSTING.md) for a Proxmox Linux VM, Docker Compose, a separate NGINX machine, HTTPS, firewall access, backup, and updates. The server package includes `compose.yaml` and its full example in the hosting README. It has source files and no Windows executable. Set the VM's private bind IP in `.env`; the database remains in a named Docker volume.
 
 The app has account passwords, secure session cookies in hosted mode, roles, and CSRF protection. For access from outside your home network, use HTTPS and restrict direct access to the backend port to your NGINX machine.
 

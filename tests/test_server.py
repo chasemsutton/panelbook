@@ -14,7 +14,7 @@ from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
-from program.server import PanelbookServer, available_release, initialize_database
+from program.server import PanelbookServer, available_release, initialize_database, version_tuple
 
 
 class Client:
@@ -49,14 +49,16 @@ class Client:
 class ServerTests(unittest.TestCase):
     def test_update_uses_single_portable_asset(self):
         releases = [
-            {"tag_name": "v0.5.2", "assets": [{"name": "Panelbook-Server-v0.5.2.zip", "digest": "sha256:" + "a" * 64}]},
-            {"tag_name": "v0.5.1", "assets": [{"name": "Panelbook-Portable-v0.5.1.zip", "digest": "sha256:" + "b" * 64,
+            {"tag_name": "v0.5.0.3", "assets": [{"name": "Panelbook-Server-v0.5.0.3.zip", "digest": "sha256:" + "a" * 64}]},
+            {"tag_name": "v0.5.0.2", "assets": [{"name": "Panelbook-Portable-v0.5.0.2.zip", "digest": "sha256:" + "b" * 64,
                                                   "browser_download_url": "https://example.test/release.zip"}]},
         ]
         with patch("program.server.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(releases).encode())):
             release = available_release()
-        self.assertEqual(release["version"], "v0.5.1")
+        self.assertEqual(release["version"], "v0.5.0.2")
         self.assertEqual(release["digest"], "b" * 64)
+        self.assertLess(version_tuple("v0.5.0"), version_tuple("v0.5.0.1"))
+        self.assertLess(version_tuple("v0.5.0.99"), version_tuple("v0.5.1"))
 
     @unittest.skipUnless(os.name == "nt", "Windows process flags are required")
     def test_update_endpoint_starts_hidden_helper(self):
@@ -65,12 +67,12 @@ class ServerTests(unittest.TestCase):
         code, _ = local.request("/api/setup/local", "POST", {})
         self.assertEqual(code, 201)
         local.status()
-        release = {"version": "v0.5.1", "url": "https://example.test/release.zip", "digest": "a" * 64}
+        release = {"version": "v0.5.0.2", "url": "https://example.test/release.zip", "digest": "a" * 64}
         with patch("program.server.available_release", return_value=release), \
              patch("program.server.subprocess.Popen") as popen, \
              patch("program.server.sys.frozen", True, create=True), \
              patch.object(self.server, "shutdown"):
-            code, _ = local.request("/api/update/install", "POST", {"version": "v0.5.1"})
+            code, _ = local.request("/api/update/install", "POST", {"version": "v0.5.0.2"})
         self.assertEqual(code, 200)
         command = popen.call_args.args[0]
         self.assertEqual(command[:5], ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
@@ -191,12 +193,9 @@ class ServerTests(unittest.TestCase):
         code, _ = local.request("/api/setup/local", "POST", {})
         self.assertEqual(code, 201)
         _, status = local.status()
-        self.assertFalse(status["autoClose"])
+        self.assertTrue(status["autoClose"])
         self.server.presence_grace = 2
         self.server.presence_lease = 5
-        code, result = local.request("/api/local/auto-close", "POST", {"enabled": True})
-        self.assertEqual(code, 200)
-        self.assertTrue(result["autoClose"])
         restarted = PanelbookServer(("127.0.0.1", 0), self.db, local_mode=True)
         self.assertTrue(restarted.auto_close_enabled)
         restarted.server_close()
@@ -222,6 +221,23 @@ class ServerTests(unittest.TestCase):
         self.thread.join(timeout=5)
         self.assertFalse(self.thread.is_alive())
 
+    def test_existing_local_workspace_uses_new_default_once(self):
+        old_db = Path(self.temp.name) / "local-050.sqlite3"
+        initialize_database(old_db)
+        with closing(sqlite3.connect(old_db)) as db:
+            db.execute("INSERT INTO users(username,password_hash,is_admin,is_local,auto_close) VALUES('Local','',1,1,0)")
+            db.execute("PRAGMA user_version=0")
+            db.commit()
+        initialize_database(old_db)
+        with closing(sqlite3.connect(old_db)) as db:
+            self.assertEqual(db.execute("SELECT auto_close FROM users WHERE is_local=1").fetchone()[0], 1)
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 1)
+            db.execute("UPDATE users SET auto_close=0 WHERE is_local=1")
+            db.commit()
+        initialize_database(old_db)
+        with closing(sqlite3.connect(old_db)) as db:
+            self.assertEqual(db.execute("SELECT auto_close FROM users WHERE is_local=1").fetchone()[0], 0)
+
     def test_auto_close_can_be_disabled(self):
         local = Client(self.base)
         local.status()
@@ -230,7 +246,7 @@ class ServerTests(unittest.TestCase):
         local.status()
         self.server.presence_grace = 0.5
         tab = "a" * 24
-        local.request("/api/local/auto-close", "POST", {"enabled": True})
+        self.assertTrue(local.status()[1]["autoClose"])
         local.request("/api/local/presence", "POST", {"tabId": tab, "active": True})
         code, result = local.request("/api/local/auto-close", "POST", {"enabled": False})
         self.assertEqual(code, 200)
