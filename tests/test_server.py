@@ -96,6 +96,18 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(response.status, 201)
             self.assertIn("Secure", response.headers["Set-Cookie"])
 
+    def test_hosted_http_accepts_same_origin_account_setup(self):
+        self.server.local_mode = False
+        browser = Client(self.base)
+        code, _ = browser.request("/api/setup", "POST", {
+            "username": "owner", "password": "a long sample password", "setupToken": self.server.setup_token
+        })
+        self.assertEqual(code, 201)
+        code, status = browser.status()
+        self.assertEqual(code, 200)
+        self.assertFalse(status["localMode"])
+        self.assertEqual(status["user"]["username"], "owner")
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.db = Path(self.temp.name) / "data" / "panelbook.sqlite3"

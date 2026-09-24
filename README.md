@@ -48,9 +48,9 @@ The first login is an administrator. Use **Users** to add accounts, then **Share
 
 ## Home server
 
-Download `Panelbook-Server-v0.5.0.1.zip` from the [0.5.0.1 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.1). Follow [README-HOSTING.md](README-HOSTING.md) for a Proxmox Linux VM, Docker Compose, a separate NGINX machine, HTTPS, firewall access, backup, and updates. The server package includes `compose.yaml` and its full example in the hosting README. It has source files and no Windows executable. Set the VM's private bind IP in `.env`; the database remains in a named Docker volume.
+For Arcane, paste the release's `compose.pull.yaml` into a project; it pulls the hosted image without a Dockerfile. For a source build, download `Panelbook-Server-v0.5.0.1.zip` from the [0.5.0.1 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.1). Follow [README-HOSTING.md](README-HOSTING.md) for Proxmox, Docker Compose, LAN HTTP or HTTPS proxy access, firewall access, backups, and updates. The database lives at `/var/panelbook/data` on the Docker VM.
 
-The app has account passwords, secure session cookies in hosted mode, roles, and CSRF protection. For access from outside your home network, use HTTPS and restrict direct access to the backend port to your NGINX machine.
+The app has account passwords, session cookies, roles, and CSRF protection. HTTPS mode adds the `Secure` cookie attribute. For access from outside your home network, use HTTPS and restrict direct access to the backend port to your NGINX machine.
 
 ## Working with panels
 

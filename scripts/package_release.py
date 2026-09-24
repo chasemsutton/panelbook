@@ -33,6 +33,7 @@ SERVER_FILES = {
     "program/panelbook.html": ROOT / "program" / "panelbook.html",
     "program/app.js": ROOT / "program" / "app.js",
     "program/styles.css": ROOT / "program" / "styles.css",
+    "scripts/container_entrypoint.py": ROOT / "scripts" / "container_entrypoint.py",
 }
 
 
