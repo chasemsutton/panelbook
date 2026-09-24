@@ -23,7 +23,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 ROOT = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 PROGRAM_LAYOUT = ROOT.name.lower() == "program"
 APP_ROOT = ROOT.parent if PROGRAM_LAYOUT else ROOT
@@ -639,7 +639,7 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 if self.server.secure_cookies:
                     command.append("-SecureCookies")
                 subprocess.Popen(command,
-                                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                                 creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 db.commit()
                 self.json_response({"ok": True})

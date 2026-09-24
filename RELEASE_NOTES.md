@@ -1,7 +1,7 @@
-# Panelbook 0.3.2
+# Panelbook 0.3.3
 
-The Windows `Panelbook.cmd` launcher now minimizes its console window as it starts the server.
+Fixes Windows portable updates hanging at “Installing the update” without restarting Panelbook. The updater now launches its helper in a hidden window, which allows the script to run and restart the server.
 
-Local-only workspaces have an optional **Close server when all tabs close** setting. When enabled, closing the last Panelbook tab stops the server after a short grace period. Refreshing a tab or keeping another Panelbook tab open leaves it running. The setting is off by default and is saved with the workspace.
+The updater smoke test now uses the same process launch flags as the app and covers a real 0.3.1 to 0.3.3 update.
 
-Windows portable versions 0.3.0 and 0.3.1 can install this release with **Check for updates**. Versions 0.2.0 and 0.2.1 still require the manual migration described in README.md.
+**Manual update required from 0.2.0 through 0.3.2.** Close Panelbook, extract the new ZIP into a new folder, copy your existing `data/` folder beside its `Panelbook.cmd`, and run the new launcher. Keep the old folder as a backup until your data appears. In-app updates work from 0.3.3 onward.

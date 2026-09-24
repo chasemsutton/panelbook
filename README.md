@@ -1,10 +1,10 @@
-# Panelbook 0.3.2
+# Panelbook 0.3.3
 
-Panelbook stores electrical panel directories in a local SQLite database and opens its interface in a browser. The same app can run on a Windows computer or a home server. Version 0.3.2 minimizes the Windows launcher and adds optional automatic shutdown for local-only workspaces.
+Panelbook stores electrical panel directories in a local SQLite database and opens its interface in a browser. The same app can run on a Windows computer or a home server. Version 0.3.3 fixes automatic updates on Windows. The minimized launcher and optional automatic shutdown for local-only workspaces remain available.
 
 ## Windows portable app
 
-1. Download `Panelbook-Portable-v0.3.2.zip` from the [0.3.2 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.3.2) and extract it to a folder you can keep.
+1. Download `Panelbook-Portable-v0.3.3.zip` from the [0.3.3 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.3.3) and extract it to a folder you can keep.
 2. Double-click **`Panelbook.cmd`** at the top level. It starts the local server in a minimized console window and opens `http://127.0.0.1:8765/` in your usual browser.
 3. Choose **Continue locally without a login** to use Panelbook only from this machine, or create a login for accounts and sharing. When creating a login, the setup code is filled automatically if the launcher opens the page. Otherwise, copy it from the Panelbook console.
 
@@ -29,15 +29,15 @@ In a local-only workspace, select **Close server when all tabs close** to stop P
 
 The local administrator's **Check for updates** button downloads a newer portable release, checks its SHA-256 digest, replaces app files, and restarts Panelbook. The open browser tab reloads when the new server is ready. It preserves the database in `data/`. If copying or startup fails, the helper restores and restarts the previous app, and writes details to `data/updater.log`. Hosted installations are updated by redeploying the server.
 
-**Breaking update from 0.2.0 or 0.2.1:** 0.2.0 expects the old flat ZIP, and 0.2.1 still uses the unreliable restart path. Close Panelbook, extract the 0.3.2 ZIP into a new folder, then move your existing `data/` folder beside the new `Panelbook.cmd`. Run the new launcher. Keep a backup of `data/` until you confirm your homes and accounts appear. Use this manual upgrade for both old versions. Versions 0.3.0 and 0.3.1 can update in the app.
+**Manual update from 0.2.0 through 0.3.2:** These versions have unreliable or broken updater launch paths. Close Panelbook, extract the 0.3.3 ZIP into a new folder, then copy your existing `data/` folder beside the new `Panelbook.cmd`. Run the new launcher. Keep the original folder as a backup until you confirm your homes and accounts appear. Starting with 0.3.3, use **Check for updates** for future releases.
 
 `Panelbook.cmd` also runs the source version if Python 3.11 or newer is installed and `program/Panelbook.exe` is absent. In that mode, start it with `python program/server.py` or the launcher; app updates are done with Git or a new source archive.
 
 ## Importing 0.1.4 data
 
-In 0.1.4, choose **Export JSON → Everything** in the browser where your old data appears. Then open 0.3.2 and choose **Import JSON**. It accepts version 4 exports of an individual panel, a home, or everything. Imported homes are added to the workspace; existing homes remain available. A panel export can be added or used to replace a panel.
+In 0.1.4, choose **Export JSON → Everything** in the browser where your old data appears. Then open 0.3.3 and choose **Import JSON**. It accepts version 4 exports of an individual panel, a home, or everything. Imported homes are added to the workspace; existing homes remain available. A panel export can be added or used to replace a panel.
 
-If you cannot open the old app, open its original `panelbook.html` at the same path in the same browser to recover its browser storage. Opening the new HTML file with `file://` offers **Export data from this browser** when version 4 data is available for that file's origin. Export before moving or deleting the old files. The 0.3.2 server does not automatically read browser storage.
+If you cannot open the old app, open its original `panelbook.html` at the same path in the same browser to recover its browser storage. Opening the new HTML file with `file://` offers **Export data from this browser** when version 4 data is available for that file's origin. Export before moving or deleting the old files. The 0.3.3 server does not automatically read browser storage.
 
 ## Accounts and sharing
 

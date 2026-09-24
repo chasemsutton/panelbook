@@ -93,20 +93,22 @@ def main():
                  "-ExpectedSha256", hashlib.sha256(payload.read_bytes()).hexdigest(),
                  "-ExpectedVersion", "v" + VERSION, "-HostName", "127.0.0.1",
                  "-Port", str(port), "-DataDir", str(data)],
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             time.sleep(1)
             subprocess.run(["taskkill", "/PID", str(old.pid), "/T", "/F"],
                            capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
             old.wait(timeout=10)
-            stdout, stderr = helper.communicate(timeout=90)
-            log = (data / "updater.log").read_text(encoding="utf-8")
+            helper.wait(timeout=90)
+            log_path = data / "updater.log"
+            assert log_path.exists(), f"Updater helper exited {helper.returncode} without creating {log_path}"
+            log = log_path.read_text(encoding="utf-8")
             found = re.search(r"Started process (\d+)", log)
             if found:
                 new_pid = int(found.group(1))
-            assert helper.returncode == 0, (stdout, stderr, log)
-            assert f"Panelbook v{VERSION} is ready." in log, (stdout, stderr, log)
+            assert helper.returncode == 0, log
+            assert f"Panelbook v{VERSION} is ready." in log, log
             updated = status(port)
             assert updated["version"] == VERSION
             assert updated["canUseLocal"]
