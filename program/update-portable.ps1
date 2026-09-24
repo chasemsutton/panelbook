@@ -69,9 +69,13 @@ try {
   New-Item -ItemType Directory -Path $work, $staging, $backup, $DataDir -Force | Out-Null
   Write-UpdateLog "Downloading $ExpectedVersion."
   Invoke-WebRequest -Uri $DownloadUrl -OutFile $zip -UseBasicParsing
-  $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  $stream = [System.IO.File]::OpenRead($zip)
+  try { $actual = [System.BitConverter]::ToString($sha256.ComputeHash($stream)).Replace('-', '') }
+  finally { $stream.Dispose(); $sha256.Dispose() }
   if ($actual -ine $ExpectedSha256) { throw 'The downloaded release failed its SHA-256 check.' }
-  Expand-Archive -LiteralPath $zip -DestinationPath $staging
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $staging)
   foreach ($name in $files) {
     if (-not (Test-Path -LiteralPath (Join-Path $staging $name) -PathType Leaf)) {
       throw "The release is missing $name."
