@@ -76,6 +76,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(command[:5], ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
         self.assertEqual(popen.call_args.kwargs["creationflags"],
                          subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP)
+        self.assertEqual(popen.call_args.kwargs["env"]["PYINSTALLER_RESET_ENVIRONMENT"], "1")
 
     def test_secure_host_requires_https_origin(self):
         self.server.secure_cookies = True

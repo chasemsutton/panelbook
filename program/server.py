@@ -644,7 +644,8 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                     command.append("-SecureCookies")
                 subprocess.Popen(command,
                                  creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
-                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 env={**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"})
                 db.commit()
                 self.json_response({"ok": True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()

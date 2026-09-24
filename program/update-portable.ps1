@@ -36,6 +36,9 @@ function Start-Panelbook {
   if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Panelbook.exe is missing from $program." }
   $arguments = @('--host', $HostName, '--port', [string]$Port, '--data-dir', ('"' + $DataDir + '"'), '--no-browser')
   if ($SecureCookies) { $arguments += '--secure-cookies' }
+  # The helper inherits onefile bootloader variables from the server. A restart
+  # must unpack its own runtime after the previous server removes its _MEI folder.
+  $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
   Start-Process -FilePath $exe -WorkingDirectory $program -ArgumentList $arguments -PassThru `
     -RedirectStandardOutput $startupOut -RedirectStandardError $startupErr
 }
