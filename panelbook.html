@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Panelbook · Electrical panel directory</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><div class="brand-mark" aria-hidden="true">▥</div><div><strong>PANELBOOK</strong><span>Residential panel directory</span></div></div>
+    <nav class="actions" aria-label="Document actions">
+      <button id="printDirectoryBtn" class="button subtle" type="button">Print / PDF</button>
+      <button id="exportBtn" class="button subtle" type="button">Export JSON</button>
+      <button id="importBtn" class="button primary" type="button">Import JSON</button>
+      <input id="importFile" type="file" accept="application/json,.json" hidden>
+    </nav>
+  </header>
+
+  <main class="page">
+    <section class="intro">
+      <div><div class="eyebrow">YOUR ELECTRICAL DIRECTORY</div><h1>Every circuit, in its place.</h1><p>Map your panels, link outlets and switches to circuits, and print the panels you need.</p></div>
+      <div class="save-state"><span class="save-dot"></span><span id="saveStatus">Saved on this device</span></div>
+    </section>
+
+    <section class="locations card" aria-label="Homes and panels">
+      <div class="location-controls">
+        <label class="settings-field home-field">Home / location <select id="homeSelect"></select></label>
+        <button id="renameHomeBtn" class="button" type="button">Rename home</button>
+        <button id="addHomeBtn" class="button" type="button">+ Home</button>
+        <button id="addMainBtn" class="button" type="button">+ Main panel</button>
+        <button id="addSubBtn" class="button" type="button">+ Subpanel from here</button>
+      </div>
+      <div id="panelNav" class="panel-nav" aria-label="Panels in this home"></div>
+      <div id="feedRow" class="feed-row" hidden>
+        <label>Fed from panel <select id="parentPanelSelect"></select></label>
+        <label>Through circuit breaker <select id="feederCircuitSelect"></select></label>
+        <button id="goParentBtn" class="button" type="button">← Open source panel</button>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <div class="panel-area">
+        <div class="section-heading"><div><div class="eyebrow">PHYSICAL MAP</div><h2>Panel layout</h2></div><span>Click a position to change its breaker type</span></div>
+        <div class="panel-shell"><div class="panel-header"><div id="panelCaption">MAIN PANEL</div><span id="panelCapacity">24 SPACES</span></div><div id="panelGrid" class="panel-grid" aria-label="Breaker positions"></div><div class="panel-footer">PANELBOOK <span>◦</span> CIRCUIT DIRECTORY</div></div>
+        <p class="hint">A double-pole breaker spans two positions. A tandem splits one position. A quad spans two positions with two outer 120 V circuits and a central 240 V circuit. Check your panel’s actual bus diagram and breaker eligibility.</p>
+      </div>
+
+      <aside class="side-area">
+        <div class="section-heading"><div><div class="eyebrow">PANEL DETAILS</div><h2>Current panel</h2></div></div>
+        <div class="toolbar card" aria-label="Panel settings">
+          <label class="settings-field">Panel name <input id="panelName" type="text" maxlength="80" placeholder="e.g. Main panel" autocomplete="off"></label>
+          <label class="settings-field narrow">Spaces <select id="spaceCount"></select></label>
+          <div class="panel-management"><button id="convertPanelBtn" class="button" type="button">Make subpanel</button><button id="deletePanelBtn" class="button danger-button" type="button">Delete panel</button></div>
+        </div>
+        <div class="section-heading"><div><div class="eyebrow">LAYOUT CONTROL</div><h2>Selected position</h2></div></div>
+        <div class="card inspector"><div id="selectionTitle" class="inspector-title">Position 1</div><p id="selectionHint">Configure the breaker occupying this position.</p><label>Breaker type<select id="breakerType"><option value="single">Single pole · 1 space</option><option value="double">Double pole · 2 spaces</option><option value="tandem">Tandem · ½ + ½ space</option><option value="quad">Quad tandem · 2 spaces</option></select></label><div id="selectionInfo" class="selection-info"></div><div id="linkedPanels" class="linked-panels"></div></div>
+        <div class="card balance-card" aria-label="Nominal phase balance"><div class="eyebrow">BREAKER RATINGS BY LEG</div><div class="balance-values"><div><span>Leg A</span><strong id="phaseA">0 A</strong></div><div><span>Leg B</span><strong id="phaseB">0 A</strong></div><div><span>Difference</span><strong id="phaseDifference">0 A</strong></div></div><div class="balance-footer"><b id="balanceBadge" class="badge balanced">Balanced</b><small id="balanceDetail">No assigned ratings yet</small></div><p>Based on breaker ratings, not a measured load calculation.</p></div>
+        <div id="message" class="message" role="status" aria-live="polite"></div>
+      </aside>
+    </section>
+
+    <section class="directory card">
+      <div class="directory-heading"><div><div class="eyebrow">CIRCUIT RECORDS</div><h2>Circuits <span id="circuitCount" class="count">0</span></h2><p>Assign each circuit to a breaker. A 240 V circuit requires a double-pole or quad center position.</p></div><button id="addCircuitBtn" class="button primary" type="button">+ Add circuit</button></div>
+      <div class="table-scroll"><table id="circuitTable" class="circuits-table"><thead><tr><th><button type="button" data-sort-table="circuits" data-sort-key="assignment">Breaker</button></th><th><button type="button" data-sort-table="circuits" data-sort-key="name">Friendly name</button></th><th><button type="button" data-sort-table="circuits" data-sort-key="voltage">Voltage</button></th><th><button type="button" data-sort-table="circuits" data-sort-key="amps">Amps</button></th><th><button type="button" data-sort-table="circuits" data-sort-key="gauge">Wire</button></th><th><button type="button" data-sort-table="circuits" data-sort-key="labelMode">Breaker label</button></th><th><span class="sr-only">Delete</span></th></tr></thead><tbody id="circuitRows"></tbody></table></div>
+      <div id="emptyCircuits" class="empty">No circuits yet. Add a circuit to begin documenting your panel.</div>
+    </section>
+    <section class="directory card points-section">
+      <div class="directory-heading"><div><div class="eyebrow">OUTLETS / SWITCHES</div><h2>Points of consumption <span id="pointCount" class="count">0</span></h2><p>Point numbers stay fixed, including when a point moves to another circuit or an older point is deleted.</p></div><button id="addPointBtn" class="button primary" type="button">+ Add point</button></div>
+      <div class="table-scroll"><table id="pointTable" class="points-table"><thead><tr><th><button type="button" data-sort-table="points" data-sort-key="circuitId">Circuit</button></th><th><button type="button" data-sort-table="points" data-sort-key="name">Friendly name</button></th><th><button type="button" data-sort-table="points" data-sort-key="location">Location / description</button></th><th><button type="button" data-sort-table="points" data-sort-key="id">No.</button></th><th><span class="sr-only">Delete</span></th></tr></thead><tbody id="pointRows"></tbody></table></div>
+      <div id="emptyPoints" class="empty">No points yet. Add a point and link it to a circuit.</div>
+    </section>
+    <footer class="footer">Wire warnings use the listed copper 60 °C reference values only. Verify conductor type, installation, breaker compatibility, local rules and actual panel labeling with a qualified electrician.</footer>
+  </main>
+  <dialog id="scopeDialog" class="app-dialog" aria-labelledby="scopeTitle"><form method="dialog"><h2 id="scopeTitle">Choose panels</h2><p id="scopeDescription"></p><fieldset id="scopeChoices" class="dialog-choices"></fieldset><div class="dialog-actions"><button class="button" type="submit" value="cancel">Cancel</button><button id="scopeConfirmBtn" class="button primary" type="submit" value="confirm">Continue</button></div></form></dialog>
+  <dialog id="convertDialog" class="app-dialog" aria-labelledby="convertTitle"><form method="dialog"><h2 id="convertTitle">Make this a subpanel</h2><p>Choose the panel and circuit that feed this panel. You can change the feeder later.</p><label class="dialog-field">Source panel<select id="convertParent"></select></label><label class="dialog-field">Feeder circuit<select id="convertFeeder"></select></label><div class="dialog-actions"><button class="button" type="submit" value="cancel">Cancel</button><button class="button primary" type="submit" value="confirm">Make subpanel</button></div></form></dialog>
+  <dialog id="panelImportDialog" class="app-dialog" aria-labelledby="panelImportTitle"><form method="dialog"><h2 id="panelImportTitle">Import panel</h2><p>Choose where to put the imported panel.</p><fieldset class="dialog-choices" id="panelImportChoices"><label><input type="radio" name="panelImportMode" value="overwrite">Replace an existing panel</label><label><input type="radio" name="panelImportMode" value="main" checked>Add as a new main panel</label><label><input type="radio" name="panelImportMode" value="sub">Add as a new subpanel</label></fieldset><div id="importOverwriteFields"><label class="dialog-field">Panel to replace<select id="importTargetPanel"></select></label><p id="importImpact" class="dialog-warning"></p></div><div id="importSubFields"><label class="dialog-field">Source panel<select id="importParent"></select></label><label class="dialog-field">Feeder circuit<select id="importFeeder"></select></label></div><div class="dialog-actions"><button class="button" type="submit" value="cancel">Cancel</button><button class="button primary" type="submit" value="confirm">Import panel</button></div></form></dialog>
+  <section id="printDirectory" class="print-only" aria-label="Printable panel directory"></section>
+</body>
+</html>
