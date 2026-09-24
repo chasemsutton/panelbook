@@ -56,8 +56,16 @@ jobs:
           docker compose down
           sudo chown root:root /var/panelbook/data
           sudo chmod 755 /var/panelbook/data
-          export PANELBOOK_IMAGE=panelbook:test PANELBOOK_PULL_POLICY=never
-          docker compose -f compose.pull.yaml up -d --wait --wait-timeout 120
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('compose.pull.yaml').read_text()
+          assert 'image: ghcr.io/chasemsutton/panelbook:latest' in source
+          assert 'pull_policy: always' in source
+          Path('compose.test-pull.yaml').write_text(
+              source.replace('image: ghcr.io/chasemsutton/panelbook:latest', 'image: panelbook:test')
+                    .replace('pull_policy: always', 'pull_policy: never'))
+          PY
+          docker compose -f compose.test-pull.yaml up -d --wait --wait-timeout 120
           test "$(stat -c %u /var/panelbook/data)" != 0
           curl -fsS http://127.0.0.1:8765/api/status > /tmp/panelbook-pull-status.json
           python -c 'import json; assert json.load(open("/tmp/panelbook-pull-status.json"))["version"] == "0.5.0.1"'
@@ -68,7 +76,7 @@ jobs:
           import urllib.request
 
           logs = subprocess.check_output(
-              ['docker', 'compose', '-f', 'compose.pull.yaml', 'logs', '--no-log-prefix', 'panelbook'], text=True)
+              ['docker', 'compose', '-f', 'compose.test-pull.yaml', 'logs', '--no-log-prefix', 'panelbook'], text=True)
           tokens = re.findall(r'First account setup code: (\S+)', logs)
           assert tokens, 'The hosted first-account setup code was not logged'
           request = urllib.request.Request(

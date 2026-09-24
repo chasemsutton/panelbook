@@ -39,7 +39,7 @@ services:
     tmpfs:
       - /tmp:rw,nosuid,noexec,size=64m
     environment:
-      PANELBOOK_PUBLIC_SCHEME: "${PANELBOOK_PUBLIC_SCHEME:-http}"
+      - PANELBOOK_PUBLIC_SCHEME
     volumes:
       - /var/panelbook/data:/data
     ports:
