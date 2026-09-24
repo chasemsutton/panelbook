@@ -1,5 +1,6 @@
 param(
   [Parameter(Mandatory=$true)][string]$AppFolder,
+  [Parameter(Mandatory=$true)][ValidateSet('program','flat')][string]$Layout,
   [Parameter(Mandatory=$true)][int]$ServerPid,
   [Parameter(Mandatory=$true)][string]$DownloadUrl,
   [Parameter(Mandatory=$true)][string]$ExpectedSha256
@@ -8,7 +9,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $app = (Resolve-Path -LiteralPath $AppFolder).Path
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ('panelbook-update-' + [guid]::NewGuid().ToString('N'))
-$files = @('Panelbook.exe', 'Panelbook.cmd', 'panelbook.html', 'app.js', 'styles.css', 'update-portable.ps1', 'README.md')
+$files = if ($Layout -eq 'program') {
+  @('Panelbook.cmd', 'README.md', 'program\Panelbook.exe', 'program\panelbook.html', 'program\app.js', 'program\styles.css', 'program\update-portable.ps1')
+} else {
+  @('Panelbook.exe', 'Panelbook.cmd', 'panelbook.html', 'app.js', 'styles.css', 'update-portable.ps1', 'README.md')
+}
 $zip = Join-Path $work 'release.zip'
 $staging = Join-Path $work 'staging'
 $backup = Join-Path $work 'backup'
@@ -31,8 +36,12 @@ try {
   try {
     foreach ($name in $files) {
       $target = Join-Path $app $name
+      $targetParent = Split-Path -Parent $target
+      New-Item -ItemType Directory -Path $targetParent -Force | Out-Null
       if (Test-Path -LiteralPath $target) {
-        Copy-Item -LiteralPath $target -Destination (Join-Path $backup $name) -Force
+        $backupPath = Join-Path $backup $name
+        New-Item -ItemType Directory -Path (Split-Path -Parent $backupPath) -Force | Out-Null
+        Copy-Item -LiteralPath $target -Destination $backupPath -Force
       }
       $copied.Add($name)
       Copy-Item -LiteralPath (Join-Path $staging $name) -Destination $target -Force

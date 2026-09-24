@@ -7,7 +7,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from server import PanelbookServer, initialize_database
+from program.server import PanelbookServer, initialize_database
 
 
 class Client:

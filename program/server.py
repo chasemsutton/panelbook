@@ -21,8 +21,10 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 ROOT = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
+PROGRAM_LAYOUT = ROOT.name.lower() == "program"
+APP_ROOT = ROOT.parent if PROGRAM_LAYOUT else ROOT
 STATIC = {"/": ("panelbook.html", "text/html; charset=utf-8"),
           "/panelbook.html": ("panelbook.html", "text/html; charset=utf-8"),
           "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -48,7 +50,7 @@ def available_release():
         version = version_tuple(release.get("tag_name", ""))
         if release.get("draft") or release.get("prerelease") or version is None or version <= current:
             continue
-        name = "Panelbook-Windows-%s.zip" % release["tag_name"]
+        name = ("Panelbook-Portable-%s.zip" if PROGRAM_LAYOUT else "Panelbook-Windows-%s.zip") % release["tag_name"]
         asset = next((item for item in release.get("assets", []) if item.get("name") == name), None)
         if asset and asset.get("digest", "").startswith("sha256:"):
             return {"version": release["tag_name"], "url": asset["browser_download_url"], "digest": asset["digest"][7:]}
@@ -492,7 +494,8 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 if release is None or release["version"] != data.get("version"):
                     raise ApiError(409, "The chosen update is no longer available. Check again.")
                 subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-                                  str(ROOT / "update-portable.ps1"), "-AppFolder", str(ROOT),
+                                  str(ROOT / "update-portable.ps1"), "-AppFolder", str(APP_ROOT),
+                                  "-Layout", "program" if PROGRAM_LAYOUT else "flat",
                                   "-ServerPid", str(os.getpid()), "-DownloadUrl", release["url"],
                                   "-ExpectedSha256", release["digest"]],
                                  creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
@@ -612,7 +615,7 @@ def main():
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--secure-cookies", action="store_true", help="Use when served through HTTPS")
     args = parser.parse_args()
-    db_path = (args.data_dir or ROOT / "data") / "panelbook.sqlite3"
+    db_path = (args.data_dir or APP_ROOT / "data") / "panelbook.sqlite3"
     initialize_database(db_path)
     local_mode = args.host in ("127.0.0.1", "localhost", "::1")
     server = PanelbookServer((args.host, args.port), db_path, args.secure_cookies, local_mode)
