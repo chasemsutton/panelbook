@@ -50,13 +50,13 @@ class Client:
 class ServerTests(unittest.TestCase):
     def test_update_uses_single_portable_asset(self):
         releases = [
-            {"tag_name": "v0.5.0.6", "assets": [{"name": "Panelbook-Server-v0.5.0.6.zip", "digest": "sha256:" + "a" * 64}]},
-            {"tag_name": "v0.5.0.5", "assets": [{"name": "Panelbook-Portable-v0.5.0.5.zip", "digest": "sha256:" + "b" * 64,
+            {"tag_name": "v0.5.0.7", "assets": [{"name": "Panelbook-Server-v0.5.0.7.zip", "digest": "sha256:" + "a" * 64}]},
+            {"tag_name": "v0.5.0.6", "assets": [{"name": "Panelbook-Portable-v0.5.0.6.zip", "digest": "sha256:" + "b" * 64,
                                                   "browser_download_url": "https://example.test/release.zip"}]},
         ]
         with patch("program.server.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(releases).encode())):
             release = available_release()
-        self.assertEqual(release["version"], "v0.5.0.5")
+        self.assertEqual(release["version"], "v0.5.0.6")
         self.assertEqual(release["digest"], "b" * 64)
         self.assertLess(version_tuple("v0.5.0"), version_tuple("v0.5.0.1"))
         self.assertLess(version_tuple("v0.5.0.99"), version_tuple("v0.5.1"))
