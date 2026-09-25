@@ -693,8 +693,27 @@
   }
   async function refreshUsersDialog() {
     const {users}=await api("/api/users");
-    el("userList").innerHTML=users.map(user=>`<div><span>${escapeHTML(user.username)}${user.isAdmin?" · admin":""}${user.id===currentUser.id?" · you":""}</span>${user.id===currentUser.id?"":`<span><button class="button" type="button" data-reset-user="${user.id}" data-name="${escapeHTML(user.username)}">Reset password</button> <button class="button danger-button" type="button" data-delete-user="${user.id}" data-name="${escapeHTML(user.username)}">Delete</button></span>`}</div>`).join("");
+    el("userList").innerHTML=users.map(user=>{
+      const canManage=user.id!==currentUser.id&&!user.isSuperAdmin&&(!user.isAdmin||currentUser.isSuperAdmin);
+      const role=user.isSuperAdmin?"super admin":user.isAdmin?"admin":"";
+      return `<div><span>${escapeHTML(user.username)}${role?` · ${role}`:""}${user.id===currentUser.id?" · you":""}</span>${canManage?`<span>${currentUser.isSuperAdmin?`<button class="button" type="button" data-toggle-admin="${user.id}" data-admin="${user.isAdmin}">${user.isAdmin?"Remove admin":"Make admin"}</button> `:""}<button class="button" type="button" data-reset-user="${user.id}" data-name="${escapeHTML(user.username)}">Reset password</button> <button class="button danger-button" type="button" data-delete-user="${user.id}" data-name="${escapeHTML(user.username)}">Delete</button></span>`:""}</div>`;
+    }).join("");
     return users;
+  }
+  async function refreshSetupCodes() {
+    const {codes}=await api("/api/setup-codes");
+    el("setupCodeList").innerHTML=codes.length?codes.map(code=>`<div><span>Code #${code.id} · ${code.unlimited?"Unlimited use":"One-time"}</span><button class="button danger-button" type="button" data-revoke-code="${code.id}">Revoke</button></div>`).join(""):"<p>No active setup codes.</p>";
+  }
+  function setAuthMode(mode) {
+    el("authForm").dataset.setup=mode;
+    el("authTitle").textContent=mode==="register"?"Create account":"Sign in";
+    el("authDescription").textContent=mode==="register"?"Enter the setup code given to you by an administrator.":"Open your homes and panels.";
+    el("authSubmit").textContent=mode==="register"?"Create account":"Sign in";
+    el("authModeBtn").textContent=mode==="register"?"Back to sign in":"Create account with setup code";
+    el("setupTokenField").hidden=mode!=="register";
+    el("setupToken").required=mode==="register";
+    el("authPassword").autocomplete=mode==="register"?"new-password":"current-password";
+    el("authError").textContent="";
   }
   async function removeHome() {
     const current=home(),owner=current.role==="owner";
@@ -739,15 +758,17 @@
     el("authForm").addEventListener("submit",async event=>{
       event.preventDefault();el("authError").textContent="";el("authSubmit").disabled=true;
       try{
-        const setup=el("authForm").dataset.setup==="true";
+        const mode=el("authForm").dataset.setup;
         const data={username:el("authUsername").value.trim(),password:el("authPassword").value};
-        if(setup)data.setupToken=el("setupToken").value.trim();
-        await api(setup?"/api/setup":"/api/login","POST",data);
+        if(mode==="true")data.setupToken=el("setupToken").value.trim();
+        if(mode==="register")data.setupCode=el("setupToken").value.trim();
+        await api(mode==="true"?"/api/setup":mode==="register"?"/api/register":"/api/login","POST",data);
         await enterApp(await api("/api/status"));
         history.replaceState(null,"",location.pathname);
       }catch(error){el("authError").textContent=error.message;}
       finally{el("authSubmit").disabled=false;}
     });
+    el("authModeBtn").addEventListener("click",()=>setAuthMode(el("authForm").dataset.setup==="register"?"login":"register"));
     el("legacyExportBtn").addEventListener("click",()=>{
       try{
         const workbook=JSON.parse(localStorage.getItem(STORAGE_KEY));
@@ -771,11 +792,14 @@
     });
     el("passwordCloseBtn").addEventListener("click",()=>el("passwordDialog").close());
     el("passwordSaveBtn").addEventListener("click",async()=>{try{await api("/api/account/password","POST",{currentPassword:el("currentPassword").value,newPassword:el("newPassword").value});el("passwordDialog").close();notify("Password changed.",true);}catch(error){alert(error.message);}});
-    el("manageUsersBtn").addEventListener("click",async()=>{try{el("newUsername").value="";el("newUserPassword").value="";await refreshUsersDialog();el("usersDialog").showModal();}catch(error){notify(error.message);}});
+    el("manageUsersBtn").addEventListener("click",async()=>{try{el("newUsername").value="";el("newUserPassword").value="";el("newSetupCode").hidden=true;el("newSetupCodeMessage").hidden=true;await Promise.all([refreshUsersDialog(),refreshSetupCodes()]);el("usersDialog").showModal();}catch(error){notify(error.message);}});
     el("usersCloseBtn").addEventListener("click",()=>el("usersDialog").close());
     el("usersSaveBtn").addEventListener("click",async()=>{try{const result=await api("/api/users","POST",{username:el("newUsername").value.trim(),password:el("newUserPassword").value});el("newUsername").value="";el("newUserPassword").value="";await refreshUsersDialog();notify(`User ${result.user.username} created. Share a home to grant access.`,true);}catch(error){alert(error.message);}});
+    el("createSetupCodeBtn").addEventListener("click",async()=>{try{const result=await api("/api/setup-codes","POST",{unlimited:el("setupCodeType").value==="unlimited"});el("newSetupCode").value=result.code;el("newSetupCode").hidden=false;el("newSetupCodeMessage").hidden=false;el("newSetupCode").select();await refreshSetupCodes();}catch(error){alert(error.message);}});
+    el("setupCodeList").addEventListener("click",async event=>{const button=event.target.closest("[data-revoke-code]");if(!button)return;if(!confirm("Revoke this setup code? It will stop working immediately."))return;try{await api(`/api/setup-codes/${button.dataset.revokeCode}`,"DELETE",{});await refreshSetupCodes();el("newSetupCode").hidden=true;el("newSetupCodeMessage").hidden=true;notify("Setup code revoked.",true);}catch(error){alert(error.message);}});
     el("userList").addEventListener("click",async event=>{
-      const reset=event.target.closest("[data-reset-user]"),remove=event.target.closest("[data-delete-user]");
+      const toggle=event.target.closest("[data-toggle-admin]"),reset=event.target.closest("[data-reset-user]"),remove=event.target.closest("[data-delete-user]");
+      if(toggle){try{await api(`/api/users/${toggle.dataset.toggleAdmin}/admin`,"POST",{isAdmin:toggle.dataset.admin!=="true"});await refreshUsersDialog();notify("Administrator access updated.",true);}catch(error){alert(error.message);}return;}
       const name=(reset||remove)?.dataset.name;
       if(reset){resetUserId=Number(reset.dataset.resetUser);el("resetPasswordTitle").textContent=`Reset password for ${name}`;el("resetPassword").value="";el("resetPasswordDialog").showModal();return;}
       if(!remove || !confirm(`Delete ${name}? Homes they own will move to you, and their login will stop working.`))return;
@@ -866,6 +890,7 @@
         const token=/^#setup=(.+)$/.exec(location.hash)?.[1];
         if(token)el("setupToken").value=decodeURIComponent(token);
       }else if(status.user)await enterApp(status);
+      else{setAuthMode("login");el("authModeBtn").hidden=false;}
     }catch(error){offerLegacyExport(`Could not reach the Panelbook server: ${error.message}. Run Panelbook.exe.`);}
   }
   init();

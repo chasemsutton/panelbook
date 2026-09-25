@@ -22,11 +22,12 @@ jobs:
           cp .env.example .env
           sed -i 's/192.168.1.50/127.0.0.1/' .env
           docker compose config --quiet
+          docker compose -f compose.build.yaml config --quiet
           docker compose -f compose.pull.yaml config --quiet
-          test "$(docker compose -f compose.pull.yaml config --services)" = panelbook
+          test "$(docker compose config --services)" = panelbook
           docker volume rm --force panelbook-data
-          docker compose up -d --build --wait --wait-timeout 120
-          test "$(docker compose exec -T panelbook id -u)" = 10001
+          docker compose -f compose.build.yaml up -d --build --wait --wait-timeout 120
+          test "$(docker compose -f compose.build.yaml exec -T panelbook id -u)" = 10001
       - name: Check hosted status
         run: |
           python - <<'PY'
@@ -38,7 +39,7 @@ jobs:
               try:
                   with urllib.request.urlopen('http://127.0.0.1:8765/api/status', timeout=2) as response:
                       status = json.load(response)
-                  assert status['version'] == '0.5.0.1', status
+                  assert status['version'] == '0.5.0.2', status
                   assert not status['localMode'] and not status['canUseLocal'] and not status['canUpdate'], status
                   print('Hosted container is ready:', status['version'])
                   break
@@ -51,11 +52,11 @@ jobs:
         run: |
           image=$(docker inspect panelbook-panelbook-1 --format '{{.Image}}')
           docker tag "$image" panelbook:test
-          docker compose down
+          docker compose -f compose.build.yaml down
           docker volume rm panelbook-data
           python - <<'PY'
           from pathlib import Path
-          source = Path('compose.pull.yaml').read_text()
+          source = Path('compose.yaml').read_text()
           assert 'image: ghcr.io/chasemsutton/panelbook:latest' in source
           assert 'pull_policy: always' in source
           Path('compose.test-pull.yaml').write_text(
@@ -65,7 +66,7 @@ jobs:
           docker compose -f compose.test-pull.yaml up -d --wait --wait-timeout 120
           test "$(docker compose -f compose.test-pull.yaml exec -T panelbook id -u)" = 10001
           curl -fsS http://127.0.0.1:8765/api/status > /tmp/panelbook-pull-status.json
-          python -c 'import json; assert json.load(open("/tmp/panelbook-pull-status.json"))["version"] == "0.5.0.1"'
+          python -c 'import json; assert json.load(open("/tmp/panelbook-pull-status.json"))["version"] == "0.5.0.2"'
           python - <<'PY'
           import json
           import re
@@ -103,10 +104,12 @@ jobs:
           docker run --rm -v "$RUNNER_TEMP/panelbook-nginx/site.conf:/etc/nginx/conf.d/default.conf:ro" -v "$RUNNER_TEMP/panelbook-nginx/certs:/certs:ro" nginx:stable nginx -t
       - name: Container logs
         if: failure()
-        run: docker compose -f compose.pull.yaml logs
+        run: docker compose -f compose.test-pull.yaml logs || docker compose -f compose.build.yaml logs
       - name: Stop container
         if: always()
-        run: docker compose -f compose.pull.yaml down
+        run: |
+          docker compose -f compose.test-pull.yaml down || true
+          docker compose -f compose.build.yaml down || true
 
   windows-portable:
     runs-on: windows-latest
@@ -136,5 +139,5 @@ jobs:
         run: python tests/smoke_updater_windows.py
       - uses: actions/upload-artifact@v4
         with:
-          name: panelbook-v0.5.0.1
-          path: dist/v0.5.0.1/*
+          name: panelbook-v0.5.0.2
+          path: dist/v0.5.0.2/*
