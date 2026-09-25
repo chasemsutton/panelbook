@@ -13,11 +13,6 @@ services:
     read_only: true
     cap_drop:
       - ALL
-    cap_add:
-      - CHOWN
-      - DAC_OVERRIDE
-      - SETGID
-      - SETUID
     security_opt:
       - no-new-privileges:true
     tmpfs:
@@ -25,6 +20,10 @@ services:
     environment:
       - PANELBOOK_PUBLIC_SCHEME
     volumes:
-      - /var/panelbook/data:/data
+      - panelbook-data:/data
     ports:
       - "${PANELBOOK_BIND_IP:-0.0.0.0}:8765:8765"
+
+volumes:
+  panelbook-data:
+    name: panelbook-data

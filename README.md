@@ -44,11 +44,13 @@ If you cannot open the old app, open its original `panelbook.html` at the same p
 
 ## Accounts and sharing
 
-The first login is an administrator. Use **Users** to add accounts, then **Share home** to give a user editor or viewer access. Local-only workspaces can use these features after choosing **Create login**. Users can change their passwords with **Password**. An editor can change a shared home's panels; a viewer can read, print, and export them. The owner controls sharing. Each account also starts with its own home. Changes from a different browser can cause a save conflict; export your edits and reload before continuing.
+The first login is an administrator. Use **Users** to add accounts, then **Share home** to give a user editor or viewer access. Local-only workspaces can use these features after choosing **Create login**. Users can change their passwords with **Password**; the administrator can reset another user's password or delete a user in **Users**. A home's owner can delete it with **Delete home**, and a user it is shared with can choose **Leave home**. An editor can change a shared home's panels; a viewer can read, print, and export them. The owner controls sharing. Each account also starts with its own home. Changes from a different browser can cause a save conflict; export your edits and reload before continuing.
+
+If the administrator forgets their password, open a Command Prompt in the `program` folder and run `PanelbookServer.exe --reset-password USERNAME`, then enter a new password. For the hosted server, see [Reset a forgotten password](README-HOSTING.md#reset-a-forgotten-password).
 
 ## Home server
 
-For Arcane, paste the release's `compose.pull.yaml` into a project; it pulls the hosted image without a Dockerfile. For a source build, download `Panelbook-Server-v0.5.0.1.zip` from the [0.5.0.1 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.1). Follow [README-HOSTING.md](README-HOSTING.md) for Proxmox, Docker Compose, LAN HTTP or HTTPS proxy access, firewall access, backups, and updates. The database lives at `/var/panelbook/data` on the Docker VM.
+For Arcane, paste the release's `compose.pull.yaml` into a project; it pulls the hosted image without a Dockerfile. For a source build, download `Panelbook-Server-v0.5.0.1.zip` from the [0.5.0.1 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.1). Follow [README-HOSTING.md](README-HOSTING.md) for Proxmox, Docker Compose, LAN HTTP or HTTPS proxy access, firewall access, backups, and updates. The database lives in the Docker named volume `panelbook-data` on the VM.
 
 The app has account passwords, session cookies, roles, and CSRF protection. HTTPS mode adds the `Secure` cookie attribute. For access from outside your home network, use HTTPS and restrict direct access to the backend port to your NGINX machine.
 

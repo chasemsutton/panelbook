@@ -1,3 +1,4 @@
+import http.client
 import http.cookiejar
 import io
 import json
@@ -14,7 +15,7 @@ from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
-from program.server import PanelbookServer, available_release, initialize_database, version_tuple
+from program.server import PanelbookServer, available_release, initialize_database, reset_password, version_tuple
 
 
 class Client:
@@ -365,6 +366,160 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(code, 200)
         code, _ = owner.request("/data/panelbook.sqlite3")
         self.assertEqual(code, 404)
+
+    def setup_owner(self):
+        owner = Client(self.base)
+        code, _ = owner.request("/api/setup", "POST", {
+            "username": "owner", "password": "a long sample password", "setupToken": self.server.setup_token
+        })
+        self.assertEqual(code, 201)
+        owner.status()
+        return owner
+
+    def add_user(self, owner, username, password="another long password"):
+        code, created = owner.request("/api/users", "POST", {"username": username, "password": password})
+        self.assertEqual(code, 201)
+        client = Client(self.base)
+        code, _ = client.request("/api/login", "POST", {"username": username, "password": password})
+        self.assertEqual(code, 200)
+        client.status()
+        return created["user"]["id"], client
+
+    def test_saved_home_keeps_only_known_fields(self):
+        owner = self.setup_owner()
+        _, workspace = owner.request("/api/workspace")
+        home = workspace["homes"][0]
+        main = home["panels"][0]
+        main["circuits"] = [{"id": 1, "name": "Feeder", "assignment": "1/3", "voltage": 240, "amps": 60,
+                             "gauge": "6", "labelMode": "circuits", "junk": "x" * 1000}]
+        main["nextCircuitId"] = 2
+        main["points"] = [{"id": 1, "circuitId": 1, "name": "Range", "location": "", "extra": [1, 2, 3]}]
+        main["nextPointId"] = 2
+        main["unexpected"] = {"nested": True}
+        home["panels"].append({"id": 77, "name": "Garage", "kind": "sub", "parentPanelId": main["id"],
+                               "parentCircuitId": 99, "spaces": 12, "types": {}, "circuits": [],
+                               "nextCircuitId": 1, "points": [], "nextPointId": 1})
+        home["extra"] = "ignored"
+        code, _ = owner.request("/api/homes/%d" % home["id"], "PUT", home)
+        self.assertEqual(code, 200)
+        _, workspace = owner.request("/api/workspace")
+        saved = workspace["homes"][0]
+        self.assertNotIn("extra", saved)
+        self.assertNotIn("unexpected", saved["panels"][0])
+        self.assertNotIn("junk", saved["panels"][0]["circuits"][0])
+        self.assertNotIn("extra", saved["panels"][0]["points"][0])
+        self.assertIsNone(saved["panels"][1]["parentCircuitId"])
+        saved["panels"][0]["points"][0]["circuitId"] = True
+        code, _ = owner.request("/api/homes/%d" % home["id"], "PUT", saved)
+        self.assertEqual(code, 400)
+
+    def test_admin_resets_passwords_and_deletes_users(self):
+        owner = self.setup_owner()
+        guest_id, guest = self.add_user(owner, "guest")
+        code, _ = guest.request("/api/users/%d/password" % guest_id, "POST", {"password": "a guest chosen password"})
+        self.assertEqual(code, 403)
+        _, owner_status = owner.status()
+        code, _ = owner.request("/api/users/%d/password" % owner_status["user"]["id"], "POST", {"password": "a replacement password"})
+        self.assertEqual(code, 400)
+        code, _ = owner.request("/api/users/%d/password" % guest_id, "POST", {"password": "a reset guest password"})
+        self.assertEqual(code, 200)
+        code, _ = guest.request("/api/workspace")
+        self.assertEqual(code, 401)
+        guest = Client(self.base)
+        code, _ = guest.request("/api/login", "POST", {"username": "guest", "password": "a reset guest password"})
+        self.assertEqual(code, 200)
+        guest.status()
+        _, guest_workspace = guest.request("/api/workspace")
+        guest_home = guest_workspace["homes"][0]
+        code, _ = guest.request("/api/users/%d" % guest_id, "DELETE", {})
+        self.assertEqual(code, 403)
+        code, _ = owner.request("/api/users/%d" % guest_id, "DELETE", {})
+        self.assertEqual(code, 200)
+        code, _ = guest.request("/api/workspace")
+        self.assertEqual(code, 401)
+        _, workspace = owner.request("/api/workspace")
+        moved = next(item for item in workspace["homes"] if item["id"] == guest_home["id"])
+        self.assertEqual(moved["role"], "owner")
+        _, users = owner.request("/api/users")
+        self.assertEqual([user["username"] for user in users["users"]], ["owner"])
+
+    def test_delete_and_leave_homes(self):
+        owner = self.setup_owner()
+        _, workspace = owner.request("/api/workspace")
+        first = workspace["homes"][0]
+        code, _ = owner.request("/api/homes/%d" % first["id"], "DELETE", {})
+        self.assertEqual(code, 409)
+        code, created = owner.request("/api/homes", "POST", {"name": "Cabin"})
+        self.assertEqual(code, 201)
+        cabin = created["home"]
+        guest_id, guest = self.add_user(owner, "guest")
+        code, _ = owner.request("/api/homes/%d/members/%d" % (cabin["id"], guest_id), "PUT", {"role": "editor"})
+        self.assertEqual(code, 200)
+        code, _ = guest.request("/api/homes/%d" % cabin["id"], "DELETE", {})
+        self.assertEqual(code, 403)
+        code, _ = guest.request("/api/homes/%d/members/%d" % (cabin["id"], guest_id), "DELETE", {})
+        self.assertEqual(code, 200)
+        _, guest_workspace = guest.request("/api/workspace")
+        self.assertNotIn(cabin["id"], [item["id"] for item in guest_workspace["homes"]])
+        guest_home = guest_workspace["homes"][0]
+        code, _ = guest.request("/api/homes/%d/members/%d" % (guest_home["id"], guest_id), "DELETE", {})
+        self.assertEqual(code, 403)
+
+        # A shared home can be the member's last home when its owner deletes it.
+        code, _ = owner.request("/api/homes/%d/members/%d" % (cabin["id"], guest_id), "PUT", {"role": "viewer"})
+        self.assertEqual(code, 200)
+        code, _ = guest.request("/api/homes/%d" % guest_home["id"], "DELETE", {})
+        self.assertEqual(code, 200)
+        code, _ = owner.request("/api/homes/%d" % cabin["id"], "DELETE", {})
+        self.assertEqual(code, 200)
+        code, guest_workspace = guest.request("/api/workspace")
+        self.assertEqual(code, 200)
+        self.assertEqual(len(guest_workspace["homes"]), 1)
+        self.assertEqual(guest_workspace["homes"][0]["role"], "owner")
+        _, workspace = owner.request("/api/workspace")
+        self.assertEqual([item["id"] for item in workspace["homes"]], [first["id"]])
+
+    def test_large_bodies_need_a_session(self):
+        port = self.server.server_address[1]
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        connection.request("POST", "/api/login", body=b"{" + b" " * (70 * 1024) + b"}",
+                           headers={"Origin": self.base, "Content-Type": "application/json"})
+        self.assertEqual(connection.getresponse().status, 413)
+        connection.close()
+        # The server answers before the claimed 10 MB body is sent.
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        connection.putrequest("POST", "/api/homes")
+        connection.putheader("Origin", self.base)
+        connection.putheader("Content-Type", "application/json")
+        connection.putheader("Content-Length", str(10 * 1024 * 1024))
+        connection.endheaders()
+        self.assertEqual(connection.getresponse().status, 401)
+        connection.close()
+
+    def test_expired_sessions_are_removed(self):
+        self.setup_owner()
+        with closing(sqlite3.connect(self.db)) as db, db:
+            user_id = db.execute("SELECT id FROM users").fetchone()[0]
+            db.execute("INSERT INTO sessions(token_hash,csrf,user_id,expires_at) VALUES('old','csrf',?,1)", (user_id,))
+        client = Client(self.base)
+        code, _ = client.request("/api/login", "POST", {"username": "owner", "password": "a long sample password"})
+        self.assertEqual(code, 200)
+        with closing(sqlite3.connect(self.db)) as db:
+            self.assertIsNone(db.execute("SELECT 1 FROM sessions WHERE token_hash='old'").fetchone())
+
+    def test_console_password_reset(self):
+        owner = self.setup_owner()
+        with patch("sys.stdin", io.StringIO("a console reset password\n")), patch("sys.stdout", io.StringIO()):
+            reset_password(self.db, "OWNER")
+        code, _ = owner.request("/api/workspace")
+        self.assertEqual(code, 401)
+        client = Client(self.base)
+        code, _ = client.request("/api/login", "POST", {"username": "owner", "password": "a console reset password"})
+        self.assertEqual(code, 200)
+        with patch("sys.stdin", io.StringIO("short\n")), self.assertRaises(SystemExit):
+            reset_password(self.db, "owner")
+        with self.assertRaises(SystemExit):
+            reset_password(self.db, "nobody")
 
 
 if __name__ == "__main__":

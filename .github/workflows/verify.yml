@@ -24,11 +24,9 @@ jobs:
           docker compose config --quiet
           docker compose -f compose.pull.yaml config --quiet
           test "$(docker compose -f compose.pull.yaml config --services)" = panelbook
-          sudo mkdir -p /var/panelbook/data
-          sudo chown root:root /var/panelbook/data
-          sudo chmod 755 /var/panelbook/data
+          docker volume rm --force panelbook-data
           docker compose up -d --build --wait --wait-timeout 120
-          test "$(stat -c %u /var/panelbook/data)" != 0
+          test "$(docker compose exec -T panelbook id -u)" = 10001
       - name: Check hosted status
         run: |
           python - <<'PY'
@@ -49,13 +47,12 @@ jobs:
           else:
               raise AssertionError('Hosted container did not become ready')
           PY
-      - name: Verify pull-only deployment prepares root-owned data
+      - name: Verify pull-only deployment on a fresh volume
         run: |
           image=$(docker inspect panelbook-panelbook-1 --format '{{.Image}}')
           docker tag "$image" panelbook:test
           docker compose down
-          sudo chown root:root /var/panelbook/data
-          sudo chmod 755 /var/panelbook/data
+          docker volume rm panelbook-data
           python - <<'PY'
           from pathlib import Path
           source = Path('compose.pull.yaml').read_text()
@@ -66,7 +63,7 @@ jobs:
                     .replace('pull_policy: always', 'pull_policy: never'))
           PY
           docker compose -f compose.test-pull.yaml up -d --wait --wait-timeout 120
-          test "$(stat -c %u /var/panelbook/data)" != 0
+          test "$(docker compose -f compose.test-pull.yaml exec -T panelbook id -u)" = 10001
           curl -fsS http://127.0.0.1:8765/api/status > /tmp/panelbook-pull-status.json
           python -c 'import json; assert json.load(open("/tmp/panelbook-pull-status.json"))["version"] == "0.5.0.1"'
           python - <<'PY'
@@ -88,6 +85,9 @@ jobs:
               assert response.status == 201
               assert 'Secure' not in response.headers['Set-Cookie']
           PY
+          docker compose -f compose.test-pull.yaml up -d --force-recreate --wait --wait-timeout 120
+          curl -fsS http://127.0.0.1:8765/api/status > /tmp/panelbook-recreated-status.json
+          python -c 'import json; assert not json.load(open("/tmp/panelbook-recreated-status.json"))["needsSetup"], "Data did not persist in the named volume"'
       - name: Validate NGINX example
         run: |
           mkdir -p "$RUNNER_TEMP/panelbook-nginx/certs"

@@ -72,6 +72,7 @@ def main():
         thread = threading.Thread(target=http_server.serve_forever, daemon=True)
         thread.start()
         old = None
+        restarted_pid = None
         new_pid = None
         try:
             old = subprocess.Popen(
@@ -92,22 +93,35 @@ def main():
             assert initial_version == source_version.group(1), (
                 f"{args.from_zip.name} runs version {initial_version}, expected {source_version.group(1)}"
             )
-            helper = subprocess.Popen(
-                ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(app / "program" / "update-portable.ps1"),
-                 "-AppFolder", str(app), "-ServerPid", str(old.pid),
-                 "-DownloadUrl", f"http://127.0.0.1:{http_server.server_port}/payload.zip",
-                 "-ExpectedSha256", hashlib.sha256(payload.read_bytes()).hexdigest(),
-                 "-ExpectedVersion", "v" + VERSION, "-HostName", "127.0.0.1",
-                 "-Port", str(port), "-DataDir", str(data)],
-                creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            time.sleep(1)
-            subprocess.run(["taskkill", "/PID", str(old.pid), "/T", "/F"],
-                           capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-            old.wait(timeout=10)
-            helper.wait(timeout=90)
+            def run_helper(server_pid, sha256):
+                helper = subprocess.Popen(
+                    ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(app / "program" / "update-portable.ps1"),
+                     "-AppFolder", str(app), "-ServerPid", str(server_pid),
+                     "-DownloadUrl", f"http://127.0.0.1:{http_server.server_port}/payload.zip",
+                     "-ExpectedSha256", sha256,
+                     "-ExpectedVersion", "v" + VERSION, "-HostName", "127.0.0.1",
+                     "-Port", str(port), "-DataDir", str(data)],
+                    creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                # The real server stops itself after starting the helper.
+                time.sleep(1)
+                subprocess.run(["taskkill", "/PID", str(server_pid), "/T", "/F"],
+                               capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                helper.wait(timeout=180)
+                return helper
+
             log_path = data / "updater.log"
+            run_helper(old.pid, "0" * 64)
+            old.wait(timeout=10)
+            log = log_path.read_text(encoding="utf-8")
+            found = re.search(r"Previous version restarted as process (\d+)", log)
+            assert found, "A failed download check did not restart the previous version:\n" + log
+            restarted_pid = int(found.group(1))
+            assert status(port)["version"] == initial_version
+            log_path.unlink()
+
+            helper = run_helper(restarted_pid, hashlib.sha256(payload.read_bytes()).hexdigest())
             assert log_path.exists(), f"Updater helper exited {helper.returncode} without creating {log_path}"
             log = log_path.read_text(encoding="utf-8")
             found = re.search(r"Started process (\d+)", log)
@@ -127,13 +141,16 @@ def main():
             assert local_status["user"]["isLocal"]
             assert local_status["autoClose"]
             assert (data / "marker.txt").read_text(encoding="utf-8") == "keep this data"
-            print(f"Windows updater smoke test passed: {initial_version} to {VERSION}; local setup and data survived.")
+            print(f"Windows updater smoke test passed: failed check restarted {initial_version}; "
+                  f"{initial_version} to {VERSION}; local setup and data survived.")
         finally:
             if old and old.poll() is None:
                 subprocess.run(["taskkill", "/PID", str(old.pid), "/T", "/F"],
                                capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-            if new_pid:
-                subprocess.run(["taskkill", "/PID", str(new_pid), "/T", "/F"],
+            for pid in (restarted_pid, new_pid):
+                if not pid:
+                    continue
+                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
                                capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
             http_server.shutdown()
             http_server.server_close()
