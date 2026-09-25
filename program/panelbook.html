@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1">
   <meta name="color-scheme" content="light">
   <title>Panelbook · Electrical panel directory</title>
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
 </head>
 <body class="locked">
-  <section id="authScreen" class="auth-screen"><form id="authForm" class="auth-card"><div class="eyebrow">PANELBOOK</div><h1 id="authTitle">Sign in</h1><p id="authDescription">Open your homes and panels.</p><button id="localOnlyBtn" class="button" type="button" hidden>Continue locally without a login</button><p id="loginChoiceLabel" hidden>Or create a login:</p><label>Username<input id="authUsername" type="text" autocomplete="username" required maxlength="40"></label><label>Password<input id="authPassword" type="password" autocomplete="current-password" required></label><label id="setupTokenField" hidden><span id="setupCodeLabel">Setup code</span><input id="setupToken" type="text" autocomplete="off"></label><p id="authError" role="alert"></p><button id="authSubmit" class="button primary" type="submit">Sign in</button><button id="authModeBtn" class="button" type="button" hidden>Create account</button><button id="legacyExportBtn" class="button" type="button" hidden>Export data from this browser</button></form></section>
+  <section id="authScreen" class="auth-screen"><form id="authForm" class="auth-card"><div class="eyebrow">PANELBOOK</div><h1 id="authTitle">Sign in</h1><p id="authDescription">Open your homes and panels.</p><button id="localOnlyBtn" class="button" type="button" hidden>Continue locally without a login</button><p id="loginChoiceLabel" hidden>Or create a login:</p><label>Username<input id="authUsername" type="text" autocomplete="username" required maxlength="40"></label><label>Password<input id="authPassword" type="password" autocomplete="current-password" required></label><label id="setupTokenField" hidden>Setup code<input id="setupToken" type="text" autocomplete="off"></label><p id="authError" role="alert"></p><button id="authSubmit" class="button primary" type="submit">Sign in</button><button id="authModeBtn" class="button" type="button" hidden>Create account</button><button id="legacyExportBtn" class="button" type="button" hidden>Export data from this browser</button></form></section>
   <header class="topbar">
     <div class="brand"><div class="brand-mark" aria-hidden="true">▥</div><div><strong>PANELBOOK</strong><span id="brandSubtitle">Residential panel directory</span></div></div>
     <nav class="actions" aria-label="Document actions">

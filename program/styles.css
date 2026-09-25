@@ -74,6 +74,9 @@ th button[data-direction="desc"]::after{content:"▼"}
 .panel-branches>.panel-tree:only-child::before{height:12px}
 .panel-branches:has(>.panel-tree:only-child)::after{display:none}
 
+/* Keep wide editing tables inside their own scrollport on mobile browsers. */
+.table-scroll{contain:layout}
+
 /* Scopes live beside their action and stay usable when the header wraps. */
 .topbar{height:auto;min-height:78px;padding-top:10px;padding-bottom:10px}
 .actions{align-items:center;justify-content:flex-end}
@@ -127,6 +130,7 @@ input::placeholder,textarea::placeholder{color:#aab8c6;opacity:1}
 .auth-card{width:min(420px,100%);display:grid;gap:14px;padding:30px;border-radius:16px;background:#fff;box-shadow:0 18px 60px #14263a24}
 .auth-card h1{margin:0}.auth-card p{margin:0;color:#64778a}.auth-card label{display:grid;gap:6px;font-size:13px;font-weight:700}.auth-card input{min-height:42px;padding:9px 11px;border:1px solid #c7d2dc;border-radius:8px;font:inherit}.auth-card [hidden]{display:none}.auth-card #authError{color:#aa3333;font-weight:700}
 body:not(.locked)>.auth-screen{display:none}.signed-in-as{font-size:12px;color:#dce8f5;white-space:nowrap}.share-members{display:grid;gap:7px;margin-top:14px}.share-members>div{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px}.share-members button{min-height:30px}
+@media(max-width:700px){.actions{min-width:0}.actions .button{min-width:0;white-space:normal}.signed-in-as{min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere}.action-group{min-width:0}}
 .auto-close-control{display:flex;align-items:center;gap:6px;color:#dce8f5;font-size:11px;cursor:pointer}.auto-close-control[hidden]{display:none}.auto-close-control input{accent-color:#dfac58}
 body[data-role="viewer"] #renameHomeBtn,body[data-role="viewer"] #addMainBtn,body[data-role="viewer"] #addSubBtn,body[data-role="viewer"] #convertPanelBtn,body[data-role="viewer"] #deletePanelBtn,body[data-role="viewer"] #addCircuitBtn,body[data-role="viewer"] #addPointBtn,body[data-role="viewer"] .delete-btn{display:none}
 body[data-role="viewer"] #panelName,body[data-role="viewer"] #spaceCount,body[data-role="viewer"] #breakerType,body[data-role="viewer"] #parentPanelSelect,body[data-role="viewer"] #feederCircuitSelect,body[data-role="viewer"] #circuitRows input,body[data-role="viewer"] #circuitRows select,body[data-role="viewer"] #pointRows input,body[data-role="viewer"] #pointRows select,body[data-role="viewer"] #pointRows textarea{pointer-events:none;background:#f1f5f8}

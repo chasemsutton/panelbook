@@ -1,10 +1,10 @@
-# Panelbook 0.5.0.3
+# Panelbook 0.5.0.4
 
-Panelbook stores electrical panel directories in a local SQLite database and opens its interface in a browser. Version 0.5.0.3 lets the super admin choose whether new accounts require setup codes. Registration is open by default. Separate Windows portable and Proxmox server packages include account sharing with viewer or editor access.
+Panelbook stores electrical panel directories in a local SQLite database and opens its interface in a browser. Version 0.5.0.4 hides the setup code field when codes are optional and keeps the mobile page at the device width. Registration is open by default; the super admin can require codes. Separate Windows portable and Proxmox server packages include account sharing with viewer or editor access.
 
 ## Windows portable app
 
-1. Download `Panelbook-Portable-v0.5.0.3.zip` from the [0.5.0.3 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.3) and extract it to a folder you can keep.
+1. Download `Panelbook-Portable-v0.5.0.4.zip` from the [0.5.0.4 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.4) and extract it to a folder you can keep.
 2. Double-click **`Panelbook.exe`** at the top level. It starts the local server without a console window and opens `http://127.0.0.1:8765/` in your usual browser. Pin `Panelbook.exe` to the taskbar if you want a one-click launcher. Clicking it again while the server is running opens the page in your browser.
 3. Choose **Continue locally without a login** to use Panelbook only from this machine, or create a login for accounts and sharing. When creating a login, the setup code is filled automatically when the launcher opens the page.
 
@@ -30,7 +30,7 @@ In a local-only workspace, **Close server when all tabs close** is on by default
 
 The local administrator's **Check for updates** button downloads a newer portable release, checks its SHA-256 digest, replaces app files, and restarts Panelbook. The open browser tab reloads when the new server is ready. It preserves the database in `data/`. If copying or startup fails, the helper restores and restarts the previous app, and writes details to `data/updater.log`. Hosted installations are updated by redeploying the server.
 
-**Moving from 0.4.x:** Version 0.5 changed the Windows executable layout. Extract 0.5.0.3 to a new folder and run the top-level `Panelbook.exe`. The old GUI updater is not used for this move. Export your homes as JSON in the old version and import them in 0.5.0.3 if you want to move data. Keep your old folder until you have checked the import.
+**Moving from 0.4.x:** Version 0.5 changed the Windows executable layout. Extract 0.5.0.4 to a new folder and run the top-level `Panelbook.exe`. The old GUI updater is not used for this move. Export your homes as JSON in the old version and import them in 0.5.0.4 if you want to move data. Keep your old folder until you have checked the import.
 
 **Moving from 0.5.0 to 0.5.0.1:** The 0.5.0 updater only recognizes three-part version tags, so it cannot discover `0.5.0.1`. Close Panelbook, extract the new portable ZIP, and copy your `data/` folder into the new folder. Run the new top-level `Panelbook.exe`. Future four-part version updates can use the GUI button.
 
@@ -38,9 +38,9 @@ The local administrator's **Check for updates** button downloads a newer portabl
 
 ## Importing 0.1.4 data
 
-In 0.1.4, choose **Export JSON → Everything** in the browser where your old data appears. Then open 0.5.0.3 and choose **Import JSON**. It accepts version 4 exports of an individual panel, a home, or everything. Imported homes are added to the workspace; existing homes remain available. A panel export can be added or used to replace a panel.
+In 0.1.4, choose **Export JSON → Everything** in the browser where your old data appears. Then open 0.5.0.4 and choose **Import JSON**. It accepts version 4 exports of an individual panel, a home, or everything. Imported homes are added to the workspace; existing homes remain available. A panel export can be added or used to replace a panel.
 
-If you cannot open the old app, open its original `panelbook.html` at the same path in the same browser to recover its browser storage. Opening the new HTML file with `file://` offers **Export data from this browser** when version 4 data is available for that file's origin. Export before moving or deleting the old files. The 0.5.0.3 server does not automatically read browser storage.
+If you cannot open the old app, open its original `panelbook.html` at the same path in the same browser to recover its browser storage. Opening the new HTML file with `file://` offers **Export data from this browser** when version 4 data is available for that file's origin. Export before moving or deleting the old files. The 0.5.0.4 server does not automatically read browser storage.
 
 ## Accounts and sharing
 
@@ -50,7 +50,7 @@ If the administrator forgets their password, open a Command Prompt in the `progr
 
 ## Home server
 
-For Arcane, paste `compose.yaml` into a project; it pulls the hosted image without a Dockerfile. The older `compose.pull.yaml` works the same way. For a source build, use `compose.build.yaml` and download `Panelbook-Server-v0.5.0.3.zip` from the [0.5.0.3 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.3). Follow [README-HOSTING.md](README-HOSTING.md) for Proxmox, Docker Compose, LAN HTTP or HTTPS proxy access, firewall access, backups, and updates. The database lives in the Docker named volume `panelbook-data` on the VM.
+For Arcane, paste `compose.yaml` into a project; it pulls the hosted image without a Dockerfile. The older `compose.pull.yaml` works the same way. For a source build, use `compose.build.yaml` and download `Panelbook-Server-v0.5.0.4.zip` from the [0.5.0.4 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.4). Follow [README-HOSTING.md](README-HOSTING.md) for Proxmox, Docker Compose, LAN HTTP or HTTPS proxy access, firewall access, backups, and updates. The database lives in the Docker named volume `panelbook-data` on the VM.
 
 The app has account passwords, session cookies, roles, and CSRF protection. HTTPS mode adds the `Secure` cookie attribute. For access from outside your home network, use HTTPS and restrict direct access to the backend port to your NGINX machine.
 
