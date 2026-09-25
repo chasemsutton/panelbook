@@ -1,7 +1,7 @@
-# Panelbook 0.5.0.2
+# Panelbook 0.5.0.3
 
-The first account is now the super admin. It can assign and remove ordinary admins. Admins can create and delete standard users, reset their passwords, and issue one-time or unlimited-use setup codes. Anyone with a code can create an account from the sign-in screen. Admins can revoke codes at any time.
+New users can now create accounts from the sign-in screen without a setup code by default. The super admin can turn on **Require a setup code for new accounts** in **Admin settings**. When enabled, registration requires a valid one-time or unlimited-use code. Admins can still create accounts directly and revoke codes at any time.
 
-Existing databases migrate automatically: the earliest existing administrator becomes super admin. Accounts, passwords, sessions, and homes remain in the `panelbook-data` volume. The default `compose.yaml` now pulls the prebuilt image. `compose.build.yaml` is available for source builds, and existing `compose.pull.yaml` deployments continue to work.
+Existing databases gain the new setting with codes optional. Accounts, passwords, sessions, and homes remain in the `panelbook-data` volume. Redeploy with the existing volume to update.
 
-The Windows and hosted packages are `Panelbook-Portable-v0.5.0.2.zip` and `Panelbook-Server-v0.5.0.2.zip`.
+The Windows and hosted packages are `Panelbook-Portable-v0.5.0.3.zip` and `Panelbook-Server-v0.5.0.3.zip`.

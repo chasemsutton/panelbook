@@ -19,6 +19,7 @@
   let csrfToken = null;
   let currentUser = null;
   let currentVersion = null;
+  let requireSetupCode = false;
   let localTabId = null;
   let localPresenceTimer = null;
   let savedHomes = new Map();
@@ -640,7 +641,7 @@
     await loadWorkspace();selected=1;renderAll();notify(`${count} home${count===1?"":"s"} imported.`,true);
   }
   function showAccountControls(status) {
-    csrfToken=status.csrf;currentUser=status.user;currentVersion=status.version;
+    csrfToken=status.csrf;currentUser=status.user;currentVersion=status.version;requireSetupCode=!!status.requireSetupCode;
     el("brandSubtitle").textContent=`Residential panel directory · v${status.version}`;
     el("signedInAs").textContent=currentUser.isLocal?"Local only":currentUser.username;
     el("autoCloseControl").hidden=!currentUser.isLocal;
@@ -707,12 +708,14 @@
   function setAuthMode(mode) {
     el("authForm").dataset.setup=mode;
     el("authTitle").textContent=mode==="register"?"Create account":"Sign in";
-    el("authDescription").textContent=mode==="register"?"Enter the setup code given to you by an administrator.":"Open your homes and panels.";
+    el("authDescription").textContent=mode==="register"?(requireSetupCode?"Enter a setup code given to you by an administrator.":"Choose a username and password to get started."):"Open your homes and panels.";
     el("authSubmit").textContent=mode==="register"?"Create account":"Sign in";
-    el("authModeBtn").textContent=mode==="register"?"Back to sign in":"Create account with setup code";
+    el("authModeBtn").textContent=mode==="register"?"Back to sign in":"Create account";
     el("setupTokenField").hidden=mode!=="register";
-    el("setupToken").required=mode==="register";
+    el("setupCodeLabel").textContent=requireSetupCode?"Setup code":"Setup code (optional)";
+    el("setupToken").required=mode==="register"&&requireSetupCode;
     el("authPassword").autocomplete=mode==="register"?"new-password":"current-password";
+    el("authPassword").minLength=mode==="register"?12:0;
     el("authError").textContent="";
   }
   async function removeHome() {
@@ -792,7 +795,8 @@
     });
     el("passwordCloseBtn").addEventListener("click",()=>el("passwordDialog").close());
     el("passwordSaveBtn").addEventListener("click",async()=>{try{await api("/api/account/password","POST",{currentPassword:el("currentPassword").value,newPassword:el("newPassword").value});el("passwordDialog").close();notify("Password changed.",true);}catch(error){alert(error.message);}});
-    el("manageUsersBtn").addEventListener("click",async()=>{try{el("newUsername").value="";el("newUserPassword").value="";el("newSetupCode").hidden=true;el("newSetupCodeMessage").hidden=true;await Promise.all([refreshUsersDialog(),refreshSetupCodes()]);el("usersDialog").showModal();}catch(error){notify(error.message);}});
+    el("manageUsersBtn").addEventListener("click",async()=>{try{el("newUsername").value="";el("newUserPassword").value="";el("newSetupCode").hidden=true;el("newSetupCodeMessage").hidden=true;const [status]=await Promise.all([api("/api/status"),refreshUsersDialog(),refreshSetupCodes()]);requireSetupCode=!!status.requireSetupCode;el("registrationSettings").hidden=!currentUser.isSuperAdmin;el("requireSetupCode").checked=requireSetupCode;el("usersDialog").showModal();}catch(error){notify(error.message);}});
+    el("requireSetupCode").addEventListener("change",async()=>{const checkbox=el("requireSetupCode");checkbox.disabled=true;try{const result=await api("/api/admin/registration","POST",{requireSetupCode:checkbox.checked});requireSetupCode=result.requireSetupCode;notify(requireSetupCode?"New accounts now require a setup code.":"New accounts can now register without a code.",true);}catch(error){checkbox.checked=requireSetupCode;alert(error.message);}finally{checkbox.disabled=false;}});
     el("usersCloseBtn").addEventListener("click",()=>el("usersDialog").close());
     el("usersSaveBtn").addEventListener("click",async()=>{try{const result=await api("/api/users","POST",{username:el("newUsername").value.trim(),password:el("newUserPassword").value});el("newUsername").value="";el("newUserPassword").value="";await refreshUsersDialog();notify(`User ${result.user.username} created. Share a home to grant access.`,true);}catch(error){alert(error.message);}});
     el("createSetupCodeBtn").addEventListener("click",async()=>{try{const result=await api("/api/setup-codes","POST",{unlimited:el("setupCodeType").value==="unlimited"});el("newSetupCode").value=result.code;el("newSetupCode").hidden=false;el("newSetupCodeMessage").hidden=false;el("newSetupCode").select();await refreshSetupCodes();}catch(error){alert(error.message);}});
@@ -878,6 +882,7 @@
     }
     try{
       const status=await api("/api/status");
+      requireSetupCode=!!status.requireSetupCode;
       el("brandSubtitle").textContent=`Residential panel directory · v${status.version}`;
       if(status.needsSetup){
         el("authForm").dataset.setup="true";
