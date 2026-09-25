@@ -1,7 +1,7 @@
-# Panelbook 0.5.0.6
+# Panelbook 0.5.0.7
 
-Circuit and outlet / switch searches now include a scope selector: this panel, the full tree containing this panel, or every panel in the selected home / location. Tree searches include the main panel and all its descendants, including sibling subpanels. Search ignores capitalization and whitespace. Results from other panels show their panel name and an Open panel button; opening a panel returns to its editable table.
+Phones get a new layout. A compact header shows the current panel and home, and bottom tabs switch between Panels, Layout, Circuits, and Outlets. Tapping a breaker opens a docked control for its breaker type below the map. Circuits and outlets / switches appear as editable cards with sort chips, and cross-panel search results appear as labeled cards. Print, export, import, and account actions are in the menu sheet, and dialogs open as bottom sheets. Wider screens keep the existing layout.
 
 Existing accounts and data remain in the `panelbook-data` volume.
 
-The Windows and hosted packages are `Panelbook-Portable-v0.5.0.6.zip` and `Panelbook-Server-v0.5.0.6.zip`.
+The Windows and hosted packages are `Panelbook-Portable-v0.5.0.7.zip` and `Panelbook-Server-v0.5.0.7.zip`.
