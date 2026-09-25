@@ -1,7 +1,7 @@
-# Panelbook 0.5.0.3
+# Panelbook 0.5.0.4
 
-New users can now create accounts from the sign-in screen without a setup code by default. The super admin can turn on **Require a setup code for new accounts** in **Admin settings**. When enabled, registration requires a valid one-time or unlimited-use code. Admins can still create accounts directly and revoke codes at any time.
+The sign-in screen now shows the setup code field only when the super admin requires codes for new accounts. With codes optional, new users see only the username and password fields.
 
-Existing databases gain the new setting with codes optional. Accounts, passwords, sessions, and homes remain in the `panelbook-data` volume. Redeploy with the existing volume to update.
+Mobile browsers now keep the page at the device width when circuit tables are wider than the screen. The tables still scroll horizontally inside their cards, and long account names wrap in the header. Existing accounts and data remain in the `panelbook-data` volume.
 
-The Windows and hosted packages are `Panelbook-Portable-v0.5.0.3.zip` and `Panelbook-Server-v0.5.0.3.zip`.
+The Windows and hosted packages are `Panelbook-Portable-v0.5.0.4.zip` and `Panelbook-Server-v0.5.0.4.zip`.

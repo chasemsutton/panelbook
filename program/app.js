@@ -711,8 +711,7 @@
     el("authDescription").textContent=mode==="register"?(requireSetupCode?"Enter a setup code given to you by an administrator.":"Choose a username and password to get started."):"Open your homes and panels.";
     el("authSubmit").textContent=mode==="register"?"Create account":"Sign in";
     el("authModeBtn").textContent=mode==="register"?"Back to sign in":"Create account";
-    el("setupTokenField").hidden=mode!=="register";
-    el("setupCodeLabel").textContent=requireSetupCode?"Setup code":"Setup code (optional)";
+    el("setupTokenField").hidden=mode!=="register"||!requireSetupCode;
     el("setupToken").required=mode==="register"&&requireSetupCode;
     el("authPassword").autocomplete=mode==="register"?"new-password":"current-password";
     el("authPassword").minLength=mode==="register"?12:0;
@@ -764,7 +763,7 @@
         const mode=el("authForm").dataset.setup;
         const data={username:el("authUsername").value.trim(),password:el("authPassword").value};
         if(mode==="true")data.setupToken=el("setupToken").value.trim();
-        if(mode==="register")data.setupCode=el("setupToken").value.trim();
+        if(mode==="register"&&requireSetupCode)data.setupCode=el("setupToken").value.trim();
         await api(mode==="true"?"/api/setup":mode==="register"?"/api/register":"/api/login","POST",data);
         await enterApp(await api("/api/status"));
         history.replaceState(null,"",location.pathname);
