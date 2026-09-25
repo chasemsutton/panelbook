@@ -167,3 +167,189 @@ body[data-role="viewer"] #panelName,body[data-role="viewer"] #spaceCount,body[da
  .paper-panel .paper-description .paper-quad>div{padding:0 1.5mm;line-height:1.08}
  .paper-panel .paper-quad>div:nth-child(2){background:transparent}
 }
+
+/* Phone layout: a compact app bar, one section at a time, and bottom tabs. */
+.mobile-only,.mobile-backdrop{display:none}
+@media print{.mobile-tabs{display:none!important}}
+@media(max-width:700px){
+  :root{--tabbar:calc(62px + env(safe-area-inset-bottom));--dock:0px}
+  body{background:#f3f5f8}
+  input,select,textarea{font-size:16px!important}
+  .mobile-only{display:revert}
+  body[data-mobile-view="panels"] [data-mobile]:not([data-mobile~="panels"]),
+  body[data-mobile-view="layout"] [data-mobile]:not([data-mobile~="layout"]),
+  body[data-mobile-view="circuits"] [data-mobile]:not([data-mobile~="circuits"]),
+  body[data-mobile-view="points"] [data-mobile]:not([data-mobile~="points"]){display:none!important}
+
+  /* App bar */
+  .topbar{position:sticky;top:0;z-index:30;flex-direction:row;align-items:center;min-height:0;height:calc(58px + env(safe-area-inset-top));padding:env(safe-area-inset-top) 12px 0 14px;gap:11px}
+  .brand>div:last-child{display:none}
+  .brand-mark{width:34px;height:34px;font-size:22px;border-radius:9px}
+  .mobile-context{flex:1;min-width:0;display:grid;gap:1px;cursor:pointer}
+  .mobile-context strong{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mobile-context span{font-size:11px;color:#a7b5c5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mobile-context span::before{content:"⌂ "}
+  .mobile-menu-btn{width:42px;height:42px;border-radius:11px;border:1px solid #405164;background:#203246;display:grid;place-items:center;padding:0}
+  .mobile-menu-btn svg,.mobile-tabs svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .mobile-menu-btn svg{stroke:#e9eef5}
+
+  /* Menu sheet reuses the desktop action buttons. */
+  .mobile-backdrop:not([hidden]){display:block;position:fixed;inset:0;z-index:40;background:rgba(13,26,43,.5)}
+  .topbar .actions{position:fixed;left:0;right:0;bottom:0;z-index:41;display:flex;flex-direction:column;align-items:stretch;gap:8px;width:auto;margin:0;padding:22px 16px calc(18px + env(safe-area-inset-bottom));background:#101e2e;border-radius:20px 20px 0 0;box-shadow:0 -18px 50px rgba(0,0,0,.3);transform:translateY(105%);visibility:hidden;transition:transform .22s ease,visibility 0s .22s}
+  body.menu-open .topbar{z-index:50}
+  .topbar .actions::before{content:"";order:-3;align-self:center;width:38px;height:4px;border-radius:4px;background:#405164;margin:-10px 0 6px}
+  body.menu-open .topbar .actions{transform:none;visibility:visible;transition:transform .22s ease}
+  .topbar .actions .button{flex:none;min-height:46px;font-size:14px;text-align:left;padding:12px 16px;white-space:normal}
+  .topbar .actions .primary{order:-1}
+  .topbar .signed-in-as{order:-2;font-size:12px;color:#a7b5c5;padding:0 2px 4px}
+  .topbar .signed-in-as:not(:empty)::before{content:"Signed in as "}
+  .update-actions .button{height:auto}
+  .auto-close-control{padding:8px 2px;font-size:13px}
+
+  /* Content area */
+  .page{padding:12px 12px calc(var(--tabbar) + var(--dock) + 20px)}
+  body[data-mobile-view="layout"]{--dock:132px}
+  .intro{display:flex;justify-content:flex-end;margin:0 2px 8px}
+  .intro>div:first-child{display:none}
+  .save-state{margin:0;font-size:11px}
+  .section-heading{margin:4px 2px 10px}
+  .section-heading h2,.directory-heading h2{font-size:19px}
+  .card{border-radius:14px}
+
+  /* Panels view: home controls, then a vertical tree. */
+  .locations{padding:14px;margin-bottom:14px}
+  .location-controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:stretch}
+  .location-controls .home-field{grid-column:1/-1;min-width:0}
+  #addMainBtn,#addSubBtn{order:1;min-height:44px;font-size:13px;background:#fff4df;border-color:#dba34c;color:#172337}
+  #renameHomeBtn,#shareHomeBtn,#removeHomeBtn,#addHomeBtn{order:2;min-height:36px;padding:7px 8px;font-size:12px;color:#4a5c70}
+  #removeHomeBtn{color:#a94437}
+  .location-controls .button{white-space:normal}
+  .panel-nav{display:grid;gap:8px;overflow:visible;padding:0;margin-top:16px;border-top:1px solid #e4eaf0;padding-top:14px}
+  .panel-nav::before{content:"PANELS";color:#a16c25;font-size:11px;font-weight:800;letter-spacing:.18em}
+  .panel-tree{width:auto!important}
+  .panel-tree>.panel-nav-item{width:100%;max-width:none;min-height:0;margin:0;padding:12px 14px}
+  .panel-nav-item span{font-size:14px}
+  .panel-nav-item small{font-size:11px}
+  .panel-branches{display:grid;gap:8px;width:auto;margin:8px 0 0 12px;padding-left:12px;border-left:2px solid #cdd8e4;justify-content:stretch}
+  .panel-branches::before,.panel-branches::after,.panel-branches>.panel-tree::before{display:none}
+  .feed-row{display:grid;gap:10px}
+  .feed-row[hidden]{display:none}
+  .side-area{margin-top:0}
+  .side-area .toolbar{grid-template-columns:minmax(0,1fr) 140px;padding:14px;margin-bottom:0}
+  .side-area .settings-field input,.side-area .settings-field select{width:100%;min-width:0}
+  .panel-management{grid-column:1/-1}
+
+  /* Layout view: larger breaker map, docked position inspector. */
+  .panel-shell{padding:12px 8px;border-width:5px;border-radius:14px}
+  .panel-grid{gap:5px;grid-auto-rows:minmax(64px,auto)}
+  .slot{padding:6px 6px;gap:4px;border-radius:7px}
+  .slot .circuit-name{font-size:11.5px}
+  .slot .slot-meta{display:block;font-size:10px;margin-top:2px}
+  .slot.tandem .slot-meta,.slot.quad .slot-meta{display:none}
+  .slot .num{min-width:28px}
+  .slot:hover{transform:none}
+  .hint{margin:10px 4px 14px}
+  .inspector{position:fixed;left:8px;right:8px;bottom:calc(var(--tabbar) + 8px);z-index:20;display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:10px;align-items:baseline;padding:12px 14px!important;border-color:#e9b35c;box-shadow:0 10px 36px rgba(25,46,70,.22);max-height:40vh;overflow:auto}
+  .inspector-title{font-size:17px}
+  .inspector p{margin:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .inspector label{grid-column:1/-1;margin-top:8px;font-size:0;gap:0}
+  .inspector select{min-height:44px;border-radius:10px}
+  .selection-info{grid-column:1/-1;margin-top:8px;font-size:11px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .linked-panels{grid-column:1/-1;margin-top:6px}
+  .linked-panels:empty{display:none}
+  .balance-card{margin-top:0}
+
+  /* Circuits and outlets: each row becomes a card. */
+  .directory{overflow:visible;background:transparent;border:0;box-shadow:none}
+  .directory-heading{padding:4px 2px 12px;align-items:center}
+  .directory-heading p,.directory-heading .eyebrow{display:none}
+  .directory-heading h2{font-size:17px;white-space:nowrap}
+  .directory-heading .button{padding:10px 12px;font-size:13px}
+  .directory-search{grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);padding:0 0 12px;gap:8px}
+  .directory-search label{font-size:10px}
+  .directory-search label:first-child{grid-column:1/-1;font-size:0;gap:0}
+  .directory-search input,.directory-search select{min-height:44px;border-radius:10px}
+  .table-scroll{overflow:visible;contain:none}
+  table,.circuits-table,.points-table{display:block;min-width:0!important}
+  table tbody{display:grid;gap:10px}
+  table tr[hidden]{display:none!important}
+  thead{display:block;margin:0 0 10px}
+  thead tr{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;align-items:center}
+  thead tr::before{content:"Sort";flex:none;color:#718294;font-size:11px;font-weight:800;margin-right:2px}
+  thead th{background:none;border:0;padding:0!important;flex:none}
+  thead th:has(.sr-only){display:none}
+  th button[data-sort-key]{border:1px solid #dbe3eb;background:#fff;border-radius:100px;padding:7px 12px;font-size:11px;letter-spacing:.04em}
+  th button[data-direction="asc"],th button[data-direction="desc"]{background:#fff4df;border-color:#dba34c;color:#172337;padding-right:26px}
+  th button[data-direction]::after{right:10px}
+  #circuitRows tr,#pointRows tr{display:grid;gap:8px 8px;background:#fff;border:1px solid #e0e6ed;border-radius:14px;padding:12px;box-shadow:0 3px 15px rgba(25,46,70,.035)}
+  #circuitRows td,#pointRows td{display:grid;gap:4px;padding:0!important;border:0;min-width:0}
+  #circuitRows td::before,#pointRows td::before{color:#718294;font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
+  td input,td select,td textarea{min-height:40px;border-radius:8px;padding:8px 10px}
+  td textarea{height:auto;min-height:60px}
+  .delete-btn{width:36px;height:36px;border-radius:9px;align-self:start;justify-self:end;font-size:24px}
+  #circuitRows tr{grid-template-columns:repeat(6,minmax(0,1fr));grid-template-areas:"name name name name name del" "brk brk volt volt amps amps" "wire wire wire label label label";align-items:start}
+  #circuitRows td:nth-child(1){grid-area:brk}#circuitRows td:nth-child(1)::before{content:"Breaker"}
+  #circuitRows td:nth-child(2){grid-area:name}
+  #circuitRows td:nth-child(2) input{font-weight:800;font-size:16px;border-color:transparent;background:#f6f8fb}
+  #circuitRows td:nth-child(3){grid-area:volt}#circuitRows td:nth-child(3)::before{content:"Voltage"}
+  #circuitRows td:nth-child(4){grid-area:amps}#circuitRows td:nth-child(4)::before{content:"Amps"}
+  #circuitRows td:nth-child(5){grid-area:wire}#circuitRows td:nth-child(5)::before{content:"Wire"}
+  #circuitRows td:nth-child(6){grid-area:label}#circuitRows td:nth-child(6)::before{content:"Breaker label"}
+  #circuitRows td:nth-child(7){grid-area:del}
+  #circuitRows tr.row-warning{background:#fff6f4;border-color:#ef9f92}
+  .wire-warning:empty{display:none}
+  #pointRows tr{grid-template-columns:auto minmax(0,1fr) 36px;grid-template-areas:"no name del" "circ circ circ" "loc loc loc"}
+  #pointRows td:nth-child(1){grid-area:circ}#pointRows td:nth-child(1)::before{content:"Circuit"}
+  #pointRows td:nth-child(2){grid-area:name}
+  #pointRows td:nth-child(2) input{font-weight:800;font-size:16px;border-color:transparent;background:#f6f8fb}
+  #pointRows td:nth-child(3){grid-area:loc}#pointRows td:nth-child(3)::before{content:"Location / description"}
+  #pointRows td:nth-child(4){grid-area:no;align-self:center}
+  #pointRows td:nth-child(4) span{padding:10px 10px;border-radius:9px;background:#fff4df;color:#8a5a1c}
+  #pointRows td:nth-child(4) span::before{content:"#"}
+  #pointRows td:nth-child(5){grid-area:del}
+  .search-results thead{display:none}
+  .search-results tr{display:grid;gap:8px 10px;background:#fff;border:1px solid #e0e6ed;border-radius:14px;padding:12px}
+  .search-results td{display:grid;gap:2px;padding:0!important;border:0;font-size:13px;min-width:0}
+  .search-results td::before{color:#718294;font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
+  .search-results td:first-child{color:#a16c25;font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+  .search-results td:last-child .button{width:100%;min-height:42px}
+  #circuitSearchRows tr{grid-template-columns:repeat(3,minmax(0,1fr));grid-template-areas:"panel panel panel" "brk name name" "volt amps wire" "open open open"}
+  #circuitSearchRows td:nth-child(1){grid-area:panel}
+  #circuitSearchRows td:nth-child(2){grid-area:brk}#circuitSearchRows td:nth-child(2)::before{content:"Breaker"}
+  #circuitSearchRows td:nth-child(3){grid-area:name;font-weight:800;font-size:15px}#circuitSearchRows td:nth-child(3)::before{content:"Friendly name"}
+  #circuitSearchRows td:nth-child(4){grid-area:volt}#circuitSearchRows td:nth-child(4)::before{content:"Voltage"}
+  #circuitSearchRows td:nth-child(5){grid-area:amps}#circuitSearchRows td:nth-child(5)::before{content:"Amps"}
+  #circuitSearchRows td:nth-child(6){grid-area:wire}#circuitSearchRows td:nth-child(6)::before{content:"Wire"}
+  #circuitSearchRows td:nth-child(7){display:none}
+  #circuitSearchRows td:nth-child(8){grid-area:open}
+  #pointSearchRows tr{grid-template-columns:auto minmax(0,1fr);grid-template-areas:"panel panel" "no name" "circ circ" "loc loc" "open open"}
+  #pointSearchRows td:nth-child(1){grid-area:panel}
+  #pointSearchRows td:nth-child(2){grid-area:circ}#pointSearchRows td:nth-child(2)::before{content:"Circuit"}
+  #pointSearchRows td:nth-child(3){grid-area:name;font-weight:800;font-size:15px;align-self:center}
+  #pointSearchRows td:nth-child(4){grid-area:loc}#pointSearchRows td:nth-child(4)::before{content:"Location / description"}
+  #pointSearchRows td:nth-child(5){grid-area:no;padding:6px 9px!important;border-radius:8px;background:#fff4df;color:#8a5a1c;font-weight:800}
+  #pointSearchRows td:nth-child(5)::before{content:"#";display:inline}
+  #pointSearchRows td:nth-child(5){display:block}
+  #pointSearchRows td:nth-child(6){grid-area:open}
+  .empty{background:#fff;border:1px dashed #cdd8e4;border-radius:14px;padding:28px 18px}
+  .points-section{margin-top:0}
+  .footer{margin:18px 4px 0}
+
+  /* Status messages float above the tabs. */
+  .message{position:fixed;left:12px;right:12px;bottom:calc(var(--tabbar) + var(--dock) + 14px);z-index:25;margin:0;padding:11px 14px;border-radius:11px;background:#fff;box-shadow:0 8px 30px rgba(25,46,70,.2);border-left:4px solid #a94331}
+  .message.ok{border-left-color:#26a878}
+  .message:empty{display:none}
+
+  /* Bottom tabs */
+  .mobile-tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;display:grid;grid-template-columns:repeat(4,1fr);height:var(--tabbar);padding:6px 6px env(safe-area-inset-bottom);background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border-top:1px solid #e0e6ed}
+  .locked>.mobile-tabs{display:none}
+  .mobile-tabs button{display:grid;justify-items:center;align-content:center;gap:3px;border:0;background:none;color:#718294;font-size:11px;font-weight:700;border-radius:12px}
+  .mobile-tabs button.active{color:#172337}
+  .mobile-tabs button.active svg{background:#fbe5bd;color:#8a5a1c;border-radius:100px;padding:3px 14px;width:52px;height:28px}
+  .mobile-tabs svg{width:22px;height:28px;padding:3px 0}
+
+  /* Dialogs open as bottom sheets. */
+  .app-dialog{width:100%;max-width:none;margin:auto 0 0;border-radius:20px 20px 0 0;padding:22px 18px calc(18px + env(safe-area-inset-bottom));max-height:88vh}
+  .dialog-actions .button{flex:1;min-height:46px;font-size:14px}
+  .dialog-field input,.dialog-field select{height:46px}
+}

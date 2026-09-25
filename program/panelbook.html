@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light">
   <title>Panelbook · Electrical panel directory</title>
   <link rel="stylesheet" href="styles.css">
@@ -12,7 +12,10 @@
   <section id="authScreen" class="auth-screen"><form id="authForm" class="auth-card"><div class="eyebrow">PANELBOOK</div><h1 id="authTitle">Sign in</h1><p id="authDescription">Open your homes and panels.</p><button id="localOnlyBtn" class="button" type="button" hidden>Continue locally without a login</button><p id="loginChoiceLabel" hidden>Or create a login:</p><label>Username<input id="authUsername" type="text" autocomplete="username" required maxlength="40"></label><label>Password<input id="authPassword" type="password" autocomplete="current-password" required></label><label id="setupTokenField" hidden>Setup code<input id="setupToken" type="text" autocomplete="off"></label><p id="authError" role="alert"></p><button id="authSubmit" class="button primary" type="submit">Sign in</button><button id="authModeBtn" class="button" type="button" hidden>Create account</button><button id="legacyExportBtn" class="button" type="button" hidden>Export data from this browser</button></form></section>
   <header class="topbar">
     <div class="brand"><div class="brand-mark" aria-hidden="true">▥</div><div><strong>PANELBOOK</strong><span id="brandSubtitle">Residential panel directory</span></div></div>
-    <nav class="actions" aria-label="Document actions">
+    <div class="mobile-context mobile-only"><strong id="mobileContextPanel"></strong><span id="mobileContextHome"></span></div>
+    <button id="mobileMenuBtn" class="mobile-menu-btn mobile-only" type="button" aria-label="Menu" aria-expanded="false" aria-controls="documentActions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <div id="mobileBackdrop" class="mobile-backdrop" hidden></div>
+    <nav id="documentActions" class="actions" aria-label="Document actions">
       <div id="updateActions" class="update-actions" hidden><button id="checkUpdatesBtn" class="button subtle" type="button">Check for updates</button></div>
       <button id="printDirectoryBtn" class="button subtle" type="button">Print / PDF</button>
       <button id="exportBtn" class="button subtle" type="button">Export JSON</button>
@@ -28,7 +31,7 @@
       <div class="save-state"><span class="save-dot"></span><span id="saveStatus">Saved in data folder</span></div>
     </section>
 
-    <section class="locations card" aria-label="Homes and panels">
+    <section class="locations card" aria-label="Homes and panels" data-mobile="panels">
       <div class="location-controls">
         <label class="settings-field home-field">Home / location <select id="homeSelect"></select></label>
         <button id="renameHomeBtn" class="button" type="button">Rename home</button>
@@ -47,43 +50,49 @@
       </div>
     </section>
 
-    <section class="workspace">
-      <div class="panel-area">
+    <section class="workspace" data-mobile="panels layout">
+      <div class="panel-area" data-mobile="layout">
         <div class="section-heading"><div><div class="eyebrow">PHYSICAL MAP</div><h2>Panel layout</h2></div><span>Click a position to change its breaker type</span></div>
         <div class="panel-shell"><div class="panel-header"><div id="panelCaption">MAIN PANEL</div><span id="panelCapacity">24 SPACES</span></div><div id="panelGrid" class="panel-grid" aria-label="Breaker positions"></div><div class="panel-footer">PANELBOOK <span>◦</span> CIRCUIT DIRECTORY</div></div>
         <p class="hint">A double-pole breaker spans two positions. A tandem splits one position. A quad spans two positions with two outer 120 V circuits and a central 240 V circuit. Check your panel’s actual bus diagram and breaker eligibility.</p>
       </div>
 
       <aside class="side-area">
-        <div class="section-heading"><div><div class="eyebrow">PANEL DETAILS</div><h2>Current panel</h2></div></div>
-        <div class="toolbar card" aria-label="Panel settings">
+        <div class="section-heading" data-mobile="panels"><div><div class="eyebrow">PANEL DETAILS</div><h2>Current panel</h2></div></div>
+        <div class="toolbar card" aria-label="Panel settings" data-mobile="panels">
           <label class="settings-field">Panel name <input id="panelName" type="text" maxlength="80" placeholder="e.g. Main panel" autocomplete="off"></label>
           <label class="settings-field narrow">Spaces <select id="spaceCount"></select></label>
           <div class="panel-management"><button id="convertPanelBtn" class="button" type="button">Make subpanel</button><button id="deletePanelBtn" class="button danger-button" type="button">Delete panel</button></div>
         </div>
-        <div class="section-heading"><div><div class="eyebrow">LAYOUT CONTROL</div><h2>Selected position</h2></div></div>
-        <div class="card inspector"><div id="selectionTitle" class="inspector-title">Position 1</div><p id="selectionHint">Configure the breaker occupying this position.</p><label>Breaker type<select id="breakerType"><option value="single">Single pole · 1 space</option><option value="double">Double pole · 2 spaces</option><option value="tandem">Tandem · ½ + ½ space</option><option value="quad">Quad tandem · 2 spaces</option></select></label><div id="selectionInfo" class="selection-info"></div><div id="linkedPanels" class="linked-panels"></div></div>
-        <div class="card balance-card" aria-label="Nominal phase balance"><div class="eyebrow">BREAKER RATINGS BY LEG</div><div class="balance-values"><div><span>Leg A</span><strong id="phaseA">0 A</strong></div><div><span>Leg B</span><strong id="phaseB">0 A</strong></div><div><span>Difference</span><strong id="phaseDifference">0 A</strong></div></div><div class="balance-footer"><b id="balanceBadge" class="badge balanced">Balanced</b><small id="balanceDetail">No assigned ratings yet</small></div><p>Based on breaker ratings, not a measured load calculation.</p></div>
+        <div class="section-heading" data-mobile="none"><div><div class="eyebrow">LAYOUT CONTROL</div><h2>Selected position</h2></div></div>
+        <div class="card inspector" data-mobile="layout"><div id="selectionTitle" class="inspector-title">Position 1</div><p id="selectionHint">Configure the breaker occupying this position.</p><label>Breaker type<select id="breakerType"><option value="single">Single pole · 1 space</option><option value="double">Double pole · 2 spaces</option><option value="tandem">Tandem · ½ + ½ space</option><option value="quad">Quad tandem · 2 spaces</option></select></label><div id="selectionInfo" class="selection-info"></div><div id="linkedPanels" class="linked-panels"></div></div>
+        <div class="card balance-card" aria-label="Nominal phase balance" data-mobile="layout"><div class="eyebrow">BREAKER RATINGS BY LEG</div><div class="balance-values"><div><span>Leg A</span><strong id="phaseA">0 A</strong></div><div><span>Leg B</span><strong id="phaseB">0 A</strong></div><div><span>Difference</span><strong id="phaseDifference">0 A</strong></div></div><div class="balance-footer"><b id="balanceBadge" class="badge balanced">Balanced</b><small id="balanceDetail">No assigned ratings yet</small></div><p>Based on breaker ratings, not a measured load calculation.</p></div>
         <div id="message" class="message" role="status" aria-live="polite"></div>
       </aside>
     </section>
 
-    <section class="directory card">
+    <section class="directory card" data-mobile="circuits">
       <div class="directory-heading"><div><div class="eyebrow">CIRCUIT RECORDS</div><h2>Circuits <span id="circuitCount" class="count">0</span></h2><p>Assign each circuit to a breaker. A 240 V circuit requires a double-pole or quad center position.</p></div><button id="addCircuitBtn" class="button primary" type="button">+ Add circuit</button></div>
       <div class="directory-search"><label>Search circuits<input id="circuitSearch" type="search" placeholder="Search circuits" autocomplete="off"></label><label>Search in<select id="circuitSearchColumn"><option value="all">All fields</option><option value="assignment">Breaker</option><option value="name">Friendly name</option><option value="voltage">Voltage</option><option value="amps">Amps</option><option value="gauge">Wire</option><option value="labelMode">Breaker label</option></select></label><label>Search scope<select id="circuitSearchScope"><option value="panel">This panel</option><option value="tree">All panels in this tree</option><option value="home">All panels in this location / home</option></select></label><p id="circuitSearchStatus" class="search-status" role="status" aria-live="polite" hidden></p></div>
       <div id="circuitTableScroll" class="table-scroll"><table id="circuitTable" class="circuits-table"><thead><tr><th><button type="button" data-sort-table="circuits" data-sort-key="assignment">Breaker</button></th><th><button type="button" data-sort-table="circuits" data-sort-key="name">Friendly name</button></th><th><button type="button" data-sort-table="circuits" data-sort-key="voltage">Voltage</button></th><th><button type="button" data-sort-table="circuits" data-sort-key="amps">Amps</button></th><th><button type="button" data-sort-table="circuits" data-sort-key="gauge">Wire</button></th><th><button type="button" data-sort-table="circuits" data-sort-key="labelMode">Breaker label</button></th><th><span class="sr-only">Delete</span></th></tr></thead><tbody id="circuitRows"></tbody></table></div>
       <div id="circuitSearchResults" class="table-scroll search-results" hidden><table><thead><tr><th>Panel</th><th>Breaker</th><th>Friendly name</th><th>Voltage</th><th>Amps</th><th>Wire</th><th>Breaker label</th><th>Open</th></tr></thead><tbody id="circuitSearchRows"></tbody></table></div>
       <div id="emptyCircuits" class="empty">No circuits yet. Add a circuit to begin documenting your panel.</div>
     </section>
-    <section class="directory card points-section">
+    <section class="directory card points-section" data-mobile="points">
       <div class="directory-heading"><div><div class="eyebrow">OUTLETS / SWITCHES</div><h2>Points of consumption <span id="pointCount" class="count">0</span></h2><p>Point numbers stay fixed, including when a point moves to another circuit or an older point is deleted.</p></div><button id="addPointBtn" class="button primary" type="button">+ Add point</button></div>
       <div class="directory-search"><label>Search outlets / switches<input id="pointSearch" type="search" placeholder="Search outlets / switches" autocomplete="off"></label><label>Search in<select id="pointSearchColumn"><option value="all">All fields</option><option value="circuitId">Circuit</option><option value="name">Friendly name</option><option value="location">Location / description</option><option value="id">No.</option></select></label><label>Search scope<select id="pointSearchScope"><option value="panel">This panel</option><option value="tree">All panels in this tree</option><option value="home">All panels in this location / home</option></select></label><p id="pointSearchStatus" class="search-status" role="status" aria-live="polite" hidden></p></div>
       <div id="pointTableScroll" class="table-scroll"><table id="pointTable" class="points-table"><thead><tr><th><button type="button" data-sort-table="points" data-sort-key="circuitId">Circuit</button></th><th><button type="button" data-sort-table="points" data-sort-key="name">Friendly name</button></th><th><button type="button" data-sort-table="points" data-sort-key="location">Location / description</button></th><th><button type="button" data-sort-table="points" data-sort-key="id">No.</button></th><th><span class="sr-only">Delete</span></th></tr></thead><tbody id="pointRows"></tbody></table></div>
       <div id="pointSearchResults" class="table-scroll search-results" hidden><table><thead><tr><th>Panel</th><th>Circuit</th><th>Friendly name</th><th>Location / description</th><th>No.</th><th>Open</th></tr></thead><tbody id="pointSearchRows"></tbody></table></div>
       <div id="emptyPoints" class="empty">No points yet. Add a point and link it to a circuit.</div>
     </section>
-    <footer class="footer">Wire warnings use the listed copper 60 °C reference values only. Verify conductor type, installation, breaker compatibility, local rules and actual panel labeling with a qualified electrician.</footer>
+    <footer class="footer" data-mobile="circuits points">Wire warnings use the listed copper 60 °C reference values only. Verify conductor type, installation, breaker compatibility, local rules and actual panel labeling with a qualified electrician.</footer>
   </main>
+  <nav id="mobileTabs" class="mobile-tabs mobile-only" aria-label="Sections">
+    <button type="button" data-mobile-tab="panels"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v5M12 9H6v4M12 9h6v4M4 13h4v6H4zM16 13h4v6h-4zM9 2h6v5H9z"/></svg>Panels</button>
+    <button type="button" data-mobile-tab="layout"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18H5zM12 3v18M5 8h14M5 13h14M5 18h14"/></svg>Layout</button>
+    <button type="button" data-mobile-tab="circuits"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 5 14h6l-1 8 8-12h-6z"/></svg>Circuits</button>
+    <button type="button" data-mobile-tab="points"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18H6zM10 9v2M14 9v2M10 15h4"/></svg>Outlets</button>
+  </nav>
   <dialog id="scopeDialog" class="app-dialog" aria-labelledby="scopeTitle"><form method="dialog"><h2 id="scopeTitle">Choose panels</h2><p id="scopeDescription"></p><fieldset id="scopeChoices" class="dialog-choices"></fieldset><div class="dialog-actions"><button class="button" type="submit" value="cancel">Cancel</button><button id="scopeConfirmBtn" class="button primary" type="submit" value="confirm">Continue</button></div></form></dialog>
   <dialog id="addSubDialog" class="app-dialog" aria-labelledby="addSubTitle"><form method="dialog"><h2 id="addSubTitle">Add subpanel</h2><p>Choose its feeder yourself. It must be an unused, assigned 240 V circuit with an amp rating in this panel.</p><label class="dialog-field">Subpanel name<input id="newSubName" type="text" maxlength="80" required placeholder="e.g. Garage panel"></label><label class="dialog-field">Feeder circuit<select id="newSubFeeder" required></select></label><div class="dialog-actions"><button class="button" type="submit" value="cancel" formnovalidate>Cancel</button><button class="button primary" type="submit" value="confirm">Add subpanel</button></div></form></dialog>
   <dialog id="convertDialog" class="app-dialog" aria-labelledby="convertTitle"><form method="dialog"><h2 id="convertTitle">Make this a subpanel</h2><p>Choose an unused, assigned 240 V feeder with an amp rating at least as high as every circuit in this panel.</p><label class="dialog-field">Source panel<select id="convertParent"></select></label><label class="dialog-field">Feeder circuit<select id="convertFeeder" required></select></label><div class="dialog-actions"><button class="button" type="submit" value="cancel" formnovalidate>Cancel</button><button class="button primary" type="submit" value="confirm">Make subpanel</button></div></form></dialog>

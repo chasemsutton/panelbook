@@ -1,4 +1,4 @@
-# Host Panelbook 0.5.0.6 on Proxmox
+# Host Panelbook 0.5.0.7 on Proxmox
 
 Panelbook runs in Docker Compose inside a Linux VM. The default `compose.yaml` pulls a prebuilt image from GitHub Container Registry, including the app and its runtime; it works in Arcane without uploading a Dockerfile or `program/` folder. `compose.build.yaml` builds the image from source. The older `compose.pull.yaml` remains available for existing projects and is equivalent to `compose.yaml`. All three use the same `panelbook-data` volume. Use `http://VM-IP:8765/` on a trusted LAN, or set up an HTTPS reverse proxy.
 

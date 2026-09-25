@@ -2,6 +2,9 @@
   "use strict";
   const STORAGE_KEY = "panelbook-workspace-v4";
   const SORT_KEY = "panelbook-sort-preference-v1";
+  const MOBILE_VIEW_KEY = "panelbook-mobile-view-v1";
+  const MOBILE_VIEWS = ["panels","layout","circuits","points"];
+  const phone = window.matchMedia("(max-width:700px)");
   const SORT_FIELDS = {circuits:["assignment","name","voltage","amps","gauge","labelMode"],points:["circuitId","name","location","id"]};
   const GAUGES = {"14":15,"12":20,"10":30,"8":40,"6":55,"4":70,"2":95,"1/0":125};
   const el = id => document.getElementById(id);
@@ -410,6 +413,8 @@
     const current=home(),select=el("homeSelect");
     select.innerHTML=workbook.homes.map(h=>`<option value="${h.id}"${h.id===current.id?" selected":""}>${escapeHTML(h.name||"Untitled home")}</option>`).join("");
     el("removeHomeBtn").textContent=current.role==="owner"?"Delete home":"Leave home";
+    el("mobileContextPanel").textContent=state.name||"Untitled panel";
+    el("mobileContextHome").textContent=current.name||"Untitled home";
     const nav=el("panelNav");nav.innerHTML="";
     function leafCount(panel){const children=current.panels.filter(p=>p.parentPanelId===panel.id);return children.length?children.reduce((total,child)=>total+leafCount(child),0):1;}
     function treeWidth(panel){const leaves=leafCount(panel);return leaves*200+(leaves-1)*12;}
@@ -899,7 +904,35 @@
     el("shareSaveBtn").addEventListener("click",async()=>{try{const userId=Number(el("shareUser").value);if(!userId)throw Error("Choose a user.");await api(`/api/homes/${home().id}/members/${userId}`,"PUT",{role:el("shareRole").value});await refreshShareDialog();notify("Home access updated.",true);}catch(error){alert(error.message);}});
     el("shareMembers").addEventListener("click",async event=>{const button=event.target.closest("[data-remove-user]");if(!button)return;try{await api(`/api/homes/${home().id}/members/${button.dataset.removeUser}`,"DELETE",{});await refreshShareDialog();notify("Home access removed.",true);}catch(error){alert(error.message);}});
   }
+  // Phones show one section at a time; wider screens ignore the view.
+  function setMobileView(view,scroll=true) {
+    if(!MOBILE_VIEWS.includes(view))view="layout";
+    document.body.dataset.mobileView=view;
+    for(const tab of document.querySelectorAll("[data-mobile-tab]")){
+      const active=tab.dataset.mobileTab===view;
+      tab.classList.toggle("active",active);
+      if(active)tab.setAttribute("aria-current","page");else tab.removeAttribute("aria-current");
+    }
+    try{sessionStorage.setItem(MOBILE_VIEW_KEY,view);}catch{ /* The default view is fine. */ }
+    if(scroll && phone.matches)window.scrollTo(0,0);
+  }
+  function setMobileMenu(open) {
+    document.body.classList.toggle("menu-open",open);
+    el("mobileMenuBtn").setAttribute("aria-expanded",String(open));
+    el("mobileBackdrop").hidden=!open;
+  }
+  function wireMobileEvents() {
+    el("mobileTabs").addEventListener("click",e=>{const tab=e.target.closest("[data-mobile-tab]");if(tab)setMobileView(tab.dataset.mobileTab);});
+    el("mobileMenuBtn").addEventListener("click",()=>setMobileMenu(!document.body.classList.contains("menu-open")));
+    el("mobileBackdrop").addEventListener("click",()=>setMobileMenu(false));
+    el("documentActions").addEventListener("click",e=>{if(e.target.closest("button"))setMobileMenu(false);});
+    document.addEventListener("keydown",e=>{if(e.key==="Escape")setMobileMenu(false);});
+    phone.addEventListener("change",()=>setMobileMenu(false));
+    el("panelNav").addEventListener("click",e=>{if(e.target.closest("[data-open-panel]") && phone.matches)setMobileView("layout");});
+    el("mobileContextPanel").parentElement.addEventListener("click",()=>setMobileView("panels"));
+  }
   function wireEvents() {
+    wireMobileEvents();
     el("checkUpdatesBtn").addEventListener("click",checkPortableUpdate);
     el("updateCancelBtn").addEventListener("click",()=>el("updateDialog").close());
     el("updateInstallBtn").addEventListener("click",installPortableUpdate);
@@ -964,6 +997,9 @@
   async function init() {
     for(let n=12;n<=42;n+=2){const option=document.createElement("option");option.value=n;option.textContent=`${n} spaces`;el("spaceCount").append(option);}
     wireAccountEvents();
+    let view="layout";
+    try{view=sessionStorage.getItem(MOBILE_VIEW_KEY)||view;}catch{ /* Use the default view. */ }
+    setMobileView(view,false);
     if(location.protocol==="file:"){
       offerLegacyExport("Run Panelbook.exe, then import your old JSON export. This file page can export data saved by this browser.");
       return;
