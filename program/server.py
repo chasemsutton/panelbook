@@ -24,7 +24,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-VERSION = "0.5.0.5"
+VERSION = "0.5.0.6"
 ROOT = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 PROGRAM_LAYOUT = ROOT.name.lower() == "program"
 APP_ROOT = ROOT.parent if PROGRAM_LAYOUT else ROOT

@@ -277,29 +277,73 @@
       return primary*dir || a.id-b.id;
     });
   }
-  function searchFields(table,item) {
+  function searchFields(table,item,panel=state) {
     if(table==="circuits")return {
       assignment:item.assignment||"Unassigned",name:item.name||"",voltage:`${item.voltage} V`,
       amps:item.amps==null?"":`${item.amps} A`,gauge:item.gauge?`${item.gauge} AWG`:"",
       labelMode:item.labelMode==="points"?"Outlet / switch names":"Circuit name"
     };
-    const circuit=circuitFor(item.circuitId);
+    const circuit=panel.circuits.find(c=>c.id===item.circuitId);
     return {circuitId:circuit?`${circuit.assignment||"Unassigned"} · ${circuit.name||"Unnamed circuit"}`:"Unassigned",
       name:item.name||"",location:item.location||"",id:String(item.id)};
   }
+  function searchPanels(scope) {
+    if(scope==="panel")return [state];
+    if(scope==="home")return home().panels;
+    let root=state;
+    while(root.parentPanelId!==null){
+      const parent=panelById(root.parentPanelId);
+      if(!parent)break;
+      root=parent;
+    }
+    const ids=descendants(root.id);
+    return home().panels.filter(panel=>ids.has(panel.id));
+  }
+  function normalizeSearch(value) { return String(value).toLocaleLowerCase().replace(/\s+/gu,""); }
+  function matchesSearch(fields,column,query) {
+    return !query || (column==="all"?Object.values(fields):[fields[column]??""]).some(value=>normalizeSearch(value).includes(query));
+  }
+  function searchResultRow(table,panel,item,fields) {
+    const values=table==="circuits"
+      ? [panel.name||"Untitled panel",fields.assignment,item.name||"—",fields.voltage,fields.amps||"—",fields.gauge||"—",fields.labelMode]
+      : [panel.name||"Untitled panel",fields.circuitId,item.name||"—",item.location||"—",String(item.id)];
+    return `<tr>${values.map(value=>`<td>${escapeHTML(value)}</td>`).join("")}<td><button class="button" type="button" data-open-search-panel="${panel.id}">Open panel</button></td></tr>`;
+  }
   function applyTableSearch(table) {
     const prefix=table==="circuits"?"circuit":"point";
-    const query=el(`${prefix}Search`).value.trim().toLocaleLowerCase();
+    const query=normalizeSearch(el(`${prefix}Search`).value);
     const column=el(`${prefix}SearchColumn`).value;
+    const scope=el(`${prefix}SearchScope`).value;
+    const wide=scope!=="panel"&&!!query;
     const items=table==="circuits"?state.circuits:state.points;
     const byId=new Map(items.map(item=>[item.id,item]));
     let visible=0;
     for(const row of el(table==="circuits"?"circuitRows":"pointRows").rows){
       const item=byId.get(Number(table==="circuits"?row.dataset.circuitId:row.dataset.pointId));
       const fields=searchFields(table,item);
-      const value=column==="all"?Object.values(fields).join(" "):fields[column]??"";
-      row.hidden=!!query&&!String(value).toLocaleLowerCase().includes(query);
+      row.hidden=!matchesSearch(fields,column,query);
       if(!row.hidden)visible++;
+    }
+    const results=el(`${prefix}SearchResults`);
+    el(`${prefix}TableScroll`).hidden=wide;
+    results.hidden=!wide;
+    el(table==="circuits"?"emptyCircuits":"emptyPoints").hidden=wide||items.length>0;
+    if(wide){
+      const matches=[];
+      let total=0;
+      for(const panel of searchPanels(scope)){
+        for(const item of table==="circuits"?panel.circuits:panel.points){
+          total++;
+          const fields=searchFields(table,item,panel);
+          if(matchesSearch(fields,column,query))matches.push(searchResultRow(table,panel,item,fields));
+        }
+      }
+      el(`${prefix}SearchRows`).innerHTML=matches.join("");
+      visible=matches.length;
+      const status=el(`${prefix}SearchStatus`);
+      status.hidden=false;
+      status.textContent=visible?`Showing ${visible} of ${total} ${table==="circuits"?"circuits":"outlets / switches"} in this ${scope==="tree"?"tree":"location / home"}.`:`No ${table==="circuits"?"circuits":"outlets / switches"} match your search.`;
+      return;
     }
     const status=el(`${prefix}SearchStatus`);
     status.hidden=!query||!items.length;
@@ -899,6 +943,13 @@
     for(const [table,prefix] of [["circuits","circuit"],["points","point"]]){
       el(`${prefix}Search`).addEventListener("input",()=>applyTableSearch(table));
       el(`${prefix}SearchColumn`).addEventListener("change",()=>applyTableSearch(table));
+      el(`${prefix}SearchScope`).addEventListener("change",()=>applyTableSearch(table));
+      el(`${prefix}SearchResults`).addEventListener("click",event=>{
+        const button=event.target.closest("[data-open-search-panel]");
+        if(!button)return;
+        el(`${prefix}SearchScope`).value="panel";
+        choosePanel(Number(button.dataset.openSearchPanel));
+      });
     }
     el("pointRows").addEventListener("input",e=>{if(e.target.matches('[data-point-field="name"],[data-point-field="location"]'))updatePoint(e.target,false);});
     el("pointRows").addEventListener("change",e=>{if(e.target.matches('[data-point-field="name"],[data-point-field="location"],[data-point-field="circuitId"]'))updatePoint(e.target,true);});
