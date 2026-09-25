@@ -24,7 +24,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-VERSION = "0.5.0.2"
+VERSION = "0.5.0.3"
 ROOT = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 PROGRAM_LAYOUT = ROOT.name.lower() == "program"
 APP_ROOT = ROOT.parent if PROGRAM_LAYOUT else ROOT
@@ -240,7 +240,12 @@ def initialize_database(path):
                 unlimited INTEGER NOT NULL CHECK(unlimited IN (0,1)),
                 created_by INTEGER REFERENCES users(id) ON DELETE SET NULL
             );
+            CREATE TABLE IF NOT EXISTS registration_settings (
+                id INTEGER PRIMARY KEY CHECK(id=1),
+                require_setup_code INTEGER NOT NULL DEFAULT 0 CHECK(require_setup_code IN (0,1))
+            );
         """)
+        db.execute("INSERT OR IGNORE INTO registration_settings(id,require_setup_code) VALUES(1,0)")
         if "is_super_admin" not in {row["name"] for row in db.execute("PRAGMA table_info(users)")}:
             db.execute("ALTER TABLE users ADD COLUMN is_super_admin INTEGER NOT NULL DEFAULT 0")
             first = db.execute("SELECT id FROM users ORDER BY is_admin DESC,id LIMIT 1").fetchone()
@@ -491,6 +496,7 @@ class PanelbookHandler(BaseHTTPRequestHandler):
             if path == "/api/status":
                 user = self.session(db)
                 needs_setup = db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+                require_setup_code = bool(db.execute("SELECT require_setup_code FROM registration_settings WHERE id=1").fetchone()[0])
                 cookie = None
                 if user is None and self.is_local_request():
                     local_user = db.execute("SELECT id FROM users WHERE is_local=1").fetchone()
@@ -501,7 +507,7 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                         user = db.execute("""SELECT s.token_hash,s.csrf,s.expires_at,u.id,u.username,u.is_admin,u.is_super_admin,u.is_local
                             FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?""",
                             (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
-                self.json_response({"version": VERSION, "needsSetup": needs_setup, "localMode": self.server.local_mode,
+                self.json_response({"version": VERSION, "needsSetup": needs_setup, "requireSetupCode": require_setup_code, "localMode": self.server.local_mode,
                                     "canUseLocal": bool(needs_setup and self.is_local_request()),
                                     "autoClose": bool(user and user["is_local"] and self.server.auto_close_enabled),
                                     "canUpdate": bool(user and user["is_admin"] and self.server.local_mode and os.name == "nt" and getattr(sys, "frozen", False) and PROGRAM_LAYOUT),
@@ -597,22 +603,31 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 self.json_response({"ok": True}, cookie=self.session_cookie(token))
                 return
             if path == "/api/register":
-                code = data.get("setupCode")
-                if not isinstance(code, str) or not 16 <= len(code) <= 256:
+                code = data.get("setupCode", "")
+                if not isinstance(code, str):
                     raise ApiError(403, "Invalid setup code.")
                 username = self.valid_username(data.get("username"))
                 db.execute("BEGIN IMMEDIATE")
-                code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
-                code_row = db.execute("SELECT id,unlimited FROM setup_codes WHERE code_hash=?", (code_hash,)).fetchone()
-                if code_row is None:
-                    raise ApiError(403, "Invalid setup code.")
+                if not db.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+                    raise ApiError(409, "Create the first account through initial setup.")
+                require_code = db.execute("SELECT require_setup_code FROM registration_settings WHERE id=1").fetchone()[0]
+                if require_code and not code:
+                    raise ApiError(403, "Enter a setup code to create an account.")
+                code_row = None
+                if code:
+                    if not 16 <= len(code) <= 256:
+                        raise ApiError(403, "Invalid setup code.")
+                    code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+                    code_row = db.execute("SELECT id,unlimited FROM setup_codes WHERE code_hash=?", (code_hash,)).fetchone()
+                    if code_row is None:
+                        raise ApiError(403, "Invalid setup code.")
                 new_hash = password_hash(data.get("password"))
                 try:
                     cursor = db.execute("INSERT INTO users(username,password_hash) VALUES(?,?)", (username, new_hash))
                 except sqlite3.IntegrityError:
                     raise ApiError(409, "That username is already in use.")
                 create_home(db, cursor.lastrowid)
-                if not code_row["unlimited"]:
+                if code_row is not None and not code_row["unlimited"]:
                     db.execute("DELETE FROM setup_codes WHERE id=?", (code_row["id"],))
                 token = self.create_session(db, cursor.lastrowid)
                 db.commit()
@@ -704,6 +719,16 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                                     (hashlib.sha256(code.encode()).hexdigest(), int(data["unlimited"]), user["id"]))
                 db.commit()
                 self.json_response({"id": cursor.lastrowid, "code": code, "unlimited": data["unlimited"]}, 201)
+                return
+            if path == "/api/admin/registration":
+                if not user["is_super_admin"] or user["is_local"]:
+                    raise ApiError(403, "Only the super admin can change registration settings.")
+                required = data.get("requireSetupCode")
+                if type(required) is not bool:
+                    raise ApiError(400, "Choose whether setup codes are required.")
+                db.execute("UPDATE registration_settings SET require_setup_code=? WHERE id=1", (int(required),))
+                db.commit()
+                self.json_response({"requireSetupCode": required})
                 return
             parts = path.strip("/").split("/")
             if len(parts) == 4 and parts[:2] == ["api", "users"] and parts[3] == "admin":

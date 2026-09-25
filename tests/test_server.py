@@ -50,13 +50,13 @@ class Client:
 class ServerTests(unittest.TestCase):
     def test_update_uses_single_portable_asset(self):
         releases = [
-            {"tag_name": "v0.5.0.4", "assets": [{"name": "Panelbook-Server-v0.5.0.4.zip", "digest": "sha256:" + "a" * 64}]},
-            {"tag_name": "v0.5.0.3", "assets": [{"name": "Panelbook-Portable-v0.5.0.3.zip", "digest": "sha256:" + "b" * 64,
+            {"tag_name": "v0.5.0.5", "assets": [{"name": "Panelbook-Server-v0.5.0.5.zip", "digest": "sha256:" + "a" * 64}]},
+            {"tag_name": "v0.5.0.4", "assets": [{"name": "Panelbook-Portable-v0.5.0.4.zip", "digest": "sha256:" + "b" * 64,
                                                   "browser_download_url": "https://example.test/release.zip"}]},
         ]
         with patch("program.server.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(releases).encode())):
             release = available_release()
-        self.assertEqual(release["version"], "v0.5.0.3")
+        self.assertEqual(release["version"], "v0.5.0.4")
         self.assertEqual(release["digest"], "b" * 64)
         self.assertLess(version_tuple("v0.5.0"), version_tuple("v0.5.0.1"))
         self.assertLess(version_tuple("v0.5.0.99"), version_tuple("v0.5.1"))
@@ -163,6 +163,68 @@ class ServerTests(unittest.TestCase):
         code, _ = admin.request("/api/setup-codes", "POST", {"unlimited": True})
         self.assertEqual(code, 403)
 
+    def test_registration_defaults_open_and_super_admin_can_require_codes(self):
+        code, _ = Client(self.base).request("/api/register", "POST", {
+            "username": "early", "password": "an early password"
+        })
+        self.assertEqual(code, 409)
+        owner = Client(self.base)
+        _, initial = owner.status()
+        self.assertFalse(initial["requireSetupCode"])
+        code, _ = owner.request("/api/setup", "POST", {
+            "username": "owner", "password": "a long sample password", "setupToken": self.server.setup_token
+        })
+        self.assertEqual(code, 201)
+        owner.status()
+        open_signup = Client(self.base)
+        code, _ = open_signup.request("/api/register", "POST", {
+            "username": "openuser", "password": "an open user password"
+        })
+        self.assertEqual(code, 201)
+        _, open_status = open_signup.status()
+        self.assertFalse(open_status["user"]["isAdmin"])
+        code, _ = open_signup.request("/api/admin/registration", "POST", {"requireSetupCode": True})
+        self.assertEqual(code, 403)
+        code, made = owner.request("/api/users", "POST", {"username": "admin", "password": "an admin password"})
+        self.assertEqual(code, 201)
+        code, _ = owner.request(f"/api/users/{made['user']['id']}/admin", "POST", {"isAdmin": True})
+        self.assertEqual(code, 200)
+        admin = Client(self.base)
+        code, _ = admin.request("/api/login", "POST", {"username": "admin", "password": "an admin password"})
+        self.assertEqual(code, 200)
+        admin.status()
+        code, _ = admin.request("/api/admin/registration", "POST", {"requireSetupCode": True})
+        self.assertEqual(code, 403)
+        code, _ = Client(self.base).request("/api/register", "POST", {
+            "username": "badcode", "password": "a bad code password", "setupCode": "not-a-valid-code"
+        })
+        self.assertEqual(code, 403)
+        code, setting = owner.request("/api/admin/registration", "POST", {"requireSetupCode": True})
+        self.assertEqual(code, 200)
+        self.assertTrue(setting["requireSetupCode"])
+        _, public_status = Client(self.base).status()
+        self.assertTrue(public_status["requireSetupCode"])
+        code, _ = Client(self.base).request("/api/register", "POST", {
+            "username": "blocked", "password": "a blocked password"
+        })
+        self.assertEqual(code, 403)
+        code, issued = owner.request("/api/setup-codes", "POST", {"unlimited": False})
+        self.assertEqual(code, 201)
+        code, _ = Client(self.base).request("/api/register", "POST", {
+            "username": "coded", "password": "a coded user password", "setupCode": issued["code"]
+        })
+        self.assertEqual(code, 201)
+        code, _ = Client(self.base).request("/api/register", "POST", {
+            "username": "reused", "password": "a reused password", "setupCode": issued["code"]
+        })
+        self.assertEqual(code, 403)
+        code, _ = owner.request("/api/admin/registration", "POST", {"requireSetupCode": False})
+        self.assertEqual(code, 200)
+        code, _ = Client(self.base).request("/api/register", "POST", {
+            "username": "openagain", "password": "another open password"
+        })
+        self.assertEqual(code, 201)
+
     def test_existing_database_promotes_original_admin(self):
         legacy = Path(self.temp.name) / "legacy.sqlite3"
         with closing(sqlite3.connect(legacy)) as db:
@@ -174,7 +236,9 @@ class ServerTests(unittest.TestCase):
         initialize_database(legacy)
         with closing(sqlite3.connect(legacy)) as db:
             rows = db.execute("SELECT username,is_admin,is_super_admin FROM users ORDER BY id").fetchall()
+            required = db.execute("SELECT require_setup_code FROM registration_settings WHERE id=1").fetchone()[0]
         self.assertEqual(rows, [("first", 1, 1), ("second", 0, 0)])
+        self.assertEqual(required, 0)
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
