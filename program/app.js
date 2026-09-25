@@ -277,6 +277,34 @@
       return primary*dir || a.id-b.id;
     });
   }
+  function searchFields(table,item) {
+    if(table==="circuits")return {
+      assignment:item.assignment||"Unassigned",name:item.name||"",voltage:`${item.voltage} V`,
+      amps:item.amps==null?"":`${item.amps} A`,gauge:item.gauge?`${item.gauge} AWG`:"",
+      labelMode:item.labelMode==="points"?"Outlet / switch names":"Circuit name"
+    };
+    const circuit=circuitFor(item.circuitId);
+    return {circuitId:circuit?`${circuit.assignment||"Unassigned"} · ${circuit.name||"Unnamed circuit"}`:"Unassigned",
+      name:item.name||"",location:item.location||"",id:String(item.id)};
+  }
+  function applyTableSearch(table) {
+    const prefix=table==="circuits"?"circuit":"point";
+    const query=el(`${prefix}Search`).value.trim().toLocaleLowerCase();
+    const column=el(`${prefix}SearchColumn`).value;
+    const items=table==="circuits"?state.circuits:state.points;
+    const byId=new Map(items.map(item=>[item.id,item]));
+    let visible=0;
+    for(const row of el(table==="circuits"?"circuitRows":"pointRows").rows){
+      const item=byId.get(Number(table==="circuits"?row.dataset.circuitId:row.dataset.pointId));
+      const fields=searchFields(table,item);
+      const value=column==="all"?Object.values(fields).join(" "):fields[column]??"";
+      row.hidden=!!query&&!String(value).toLocaleLowerCase().includes(query);
+      if(!row.hidden)visible++;
+    }
+    const status=el(`${prefix}SearchStatus`);
+    status.hidden=!query||!items.length;
+    if(!status.hidden)status.textContent=visible?`Showing ${visible} of ${items.length} ${table==="circuits"?"circuits":"outlets / switches"}.`:`No ${table==="circuits"?"circuits":"outlets / switches"} match your search.`;
+  }
   function renderSortHeaders() {
     for (const [name,id] of [["circuits","circuitTable"],["points","pointTable"]]) {
       for (const button of el(id).querySelectorAll("[data-sort-key]")) {
@@ -379,6 +407,7 @@
     }
     el("emptyCircuits").hidden = state.circuits.length > 0;
     el("circuitCount").textContent = String(state.circuits.length);
+    applyTableSearch("circuits");
   }
   function renderPointRows() {
     const body=el("pointRows"); body.innerHTML="";
@@ -390,6 +419,7 @@
     }
     el("emptyPoints").hidden=state.points.length>0;
     el("pointCount").textContent=String(state.points.length);
+    applyTableSearch("points");
   }
   function renderAll() {
     el("panelName").value = state.name; el("spaceCount").value = String(state.spaces);
@@ -434,11 +464,13 @@
     state.spaces=spaces; selected=Math.min(selected,spaces); renderAll();
   }
   function addCircuit() {
+    el("circuitSearch").value="";
     const id=state.nextCircuitId++;
     state.circuits.push({id,name:"",assignment:"",voltage:120,amps:null,gauge:"",labelMode:"circuits"});
     renderAll(); el("circuitRows").querySelector(`[data-circuit-id="${id}"] [data-field="name"]`)?.focus();
   }
   function addPoint() {
+    el("pointSearch").value="";
     const id=state.nextPointId++;
     state.points.push({id,circuitId:null,name:"",location:""});
     renderAll(); el("pointRows").querySelector(`[data-point-id="${id}"] [data-point-field="name"]`)?.focus();
@@ -473,6 +505,7 @@
     if(field==="name" || field==="assignment" || field==="voltage" || field==="amps") renderNavigation();
     if (field==="name" || field==="assignment" || field==="voltage") renderPointRows();
     if (commit && (field==="assignment" || field==="voltage" || sorts.circuits.key===field)) renderRows();
+    if(commit)applyTableSearch("circuits");
   }
   function updatePoint(target,commit) {
     const row=target.closest("tr"); if (!row) return;
@@ -482,6 +515,7 @@
     else p[field]=target.value;
     save(); renderPanel();
     if (commit && (field==="circuitId" || sorts.points.key===field)) renderPointRows();
+    if(commit)applyTableSearch("points");
   }
   function printSlot(n) {
     const type=kind(n);
@@ -862,6 +896,10 @@
     el("circuitRows").addEventListener("change",e=>{if(e.target.matches('[data-field="assignment"],[data-field="voltage"],[data-field="gauge"],[data-field="labelMode"],[data-field="name"],[data-field="amps"]'))updateCircuit(e.target,true);});
     el("circuitRows").addEventListener("click",e=>{const btn=e.target.closest("[data-delete]");if(!btn)return;const id=Number(btn.dataset.delete),c=circuitFor(id);if(!c)return;const linked=pointsFor(id).length,subpanels=feederChildren(state.id,id).length;if(!confirm(`Delete ${c.name||"this circuit"}${c.assignment?` at breaker ${c.assignment}`:""}?${linked?` ${linked} linked point${linked===1?"":"s"} will become unassigned.`:""}${subpanels?` ${subpanels} subpanel feeder link${subpanels===1?"":"s"} will be cleared.`:""}`))return;for(const p of state.points)if(p.circuitId===id)p.circuitId=null;for(const p of feederChildren(state.id,id))p.parentCircuitId=null;state.circuits=state.circuits.filter(x=>x!==c);renderAll();});
     el("addPointBtn").addEventListener("click",addPoint);
+    for(const [table,prefix] of [["circuits","circuit"],["points","point"]]){
+      el(`${prefix}Search`).addEventListener("input",()=>applyTableSearch(table));
+      el(`${prefix}SearchColumn`).addEventListener("change",()=>applyTableSearch(table));
+    }
     el("pointRows").addEventListener("input",e=>{if(e.target.matches('[data-point-field="name"],[data-point-field="location"]'))updatePoint(e.target,false);});
     el("pointRows").addEventListener("change",e=>{if(e.target.matches('[data-point-field="name"],[data-point-field="location"],[data-point-field="circuitId"]'))updatePoint(e.target,true);});
     el("pointRows").addEventListener("click",e=>{const btn=e.target.closest("[data-delete-point]");if(!btn)return;const id=Number(btn.dataset.deletePoint);const p=state.points.find(x=>x.id===id);if(!p)return;if(!confirm(`Delete point ${id}${p.name?` (${p.name})`:""}? Its number will not be reused.`))return;state.points=state.points.filter(x=>x!==p);renderAll();});

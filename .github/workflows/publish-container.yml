@@ -9,7 +9,7 @@ on:
       version:
         description: 'Released version without the v prefix'
         required: true
-        default: '0.5.0.4'
+        default: '0.5.0.5'
       publish_latest:
         description: 'Also update the latest tag (use only for the newest release)'
         type: boolean

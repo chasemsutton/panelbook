@@ -1,7 +1,7 @@
-# Panelbook 0.5.0.4
+# Panelbook 0.5.0.5
 
-The sign-in screen now shows the setup code field only when the super admin requires codes for new accounts. With codes optional, new users see only the username and password fields.
+Circuit and outlet / switch tables now have a search field and a column selector. Searches use all displayed columns by default, or a specific column when selected. Search filters the current panel without changing saved data, and it works with the existing sort controls.
 
-Mobile browsers now keep the page at the device width when circuit tables are wider than the screen. The tables still scroll horizontally inside their cards, and long account names wrap in the header. Existing accounts and data remain in the `panelbook-data` volume.
+The mobile header keeps its action buttons readable at phone widths. Existing accounts and data remain in the `panelbook-data` volume.
 
-The Windows and hosted packages are `Panelbook-Portable-v0.5.0.4.zip` and `Panelbook-Server-v0.5.0.4.zip`.
+The Windows and hosted packages are `Panelbook-Portable-v0.5.0.5.zip` and `Panelbook-Server-v0.5.0.5.zip`.
