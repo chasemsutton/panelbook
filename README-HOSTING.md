@@ -1,12 +1,14 @@
-# Host Panelbook 0.5.0.1 on Proxmox
+# Host Panelbook 0.5.0.2 on Proxmox
 
-Panelbook runs in Docker Compose inside a Linux VM. The one-file `compose.pull.yaml` pulls a prebuilt image from GitHub Container Registry, including the app and its runtime; it works in Arcane without uploading a Dockerfile or `program/` folder. `compose.yaml` remains available for building the image from source. Both setups use the same database format. Use `http://VM-IP:8765/` on a trusted LAN, or set up an HTTPS reverse proxy.
+Panelbook runs in Docker Compose inside a Linux VM. The default `compose.yaml` pulls a prebuilt image from GitHub Container Registry, including the app and its runtime; it works in Arcane without uploading a Dockerfile or `program/` folder. `compose.build.yaml` builds the image from source. The older `compose.pull.yaml` remains available for existing projects and is equivalent to `compose.yaml`. All three use the same `panelbook-data` volume. Use `http://VM-IP:8765/` on a trusted LAN, or set up an HTTPS reverse proxy.
 
 ## Arcane: deploy from one Compose file
 
-In Arcane, create a project named `panelbook` and paste the contents of [`compose.pull.yaml`](compose.pull.yaml) as its Compose configuration. Set `PANELBOOK_BIND_IP` in Arcane's environment editor if you want to bind TCP 8765 to a particular VM interface; without it, Docker listens on all IPv4 interfaces. Leave `PANELBOOK_PUBLIC_SCHEME` unset for direct HTTP access on your LAN, or set it to `https` when using an HTTPS reverse proxy. Choose **Deploy**. Arcane pulls `ghcr.io/chasemsutton/panelbook:latest`; no Dockerfile, source files, or separate image host are needed. Panelbook runs as a non-root user (UID 10001) and never starts as root. Arcane shows only one running service. The database is stored in the Docker named volume `panelbook-data`, which Docker creates on the first deploy and keeps across redeploys and image updates; `/data` is its path inside the container. If you deployed an earlier build that stored data in `/var/panelbook/data`, follow [Move data from /var/panelbook/data](#move-data-from-varpanelbookdata) before redeploying. To update later, redeploy the project. Compose pulls the current `latest` image each time; running containers do not update themselves. For a fixed version, replace `latest` with a published image tag and remove `pull_policy: always`.
+In Arcane, create a project named `panelbook` and paste the contents of [`compose.yaml`](compose.yaml) as its Compose configuration. Set `PANELBOOK_BIND_IP` in Arcane's environment editor if you want to bind TCP 8765 to a particular VM interface; without it, Docker listens on all IPv4 interfaces. Leave `PANELBOOK_PUBLIC_SCHEME` unset for direct HTTP access on your LAN, or set it to `https` when using an HTTPS reverse proxy. Choose **Deploy**. Arcane pulls `ghcr.io/chasemsutton/panelbook:latest`; no Dockerfile, source files, or separate image host are needed. Panelbook runs as a non-root user (UID 10001) and never starts as root. Arcane shows only one running service. The database is stored in the Docker named volume `panelbook-data`, which Docker creates on the first deploy and keeps across redeploys and image updates; `/data` is its path inside the container. If you deployed an earlier build that stored data in `/var/panelbook/data`, follow [Move data from /var/panelbook/data](#move-data-from-varpanelbookdata) before redeploying. To update later, redeploy the project. Compose pulls the current `latest` image each time; running containers do not update themselves. For a fixed version, replace `latest` with a published image tag and remove `pull_policy: always`.
 
 For direct LAN access, open `http://VM-IP:8765/` and allow TCP 8765 only from the intended LAN clients in the VM or Proxmox firewall. HTTP sends passwords and session cookies without encryption, so use this only on a network you trust. If you need access over the internet or an untrusted network, use the HTTPS reverse proxy described below and set `PANELBOOK_PUBLIC_SCHEME=https` in Arcane.
+
+For the default command-line deployment, put `compose.yaml` in a directory on the VM and run `docker compose up -d`. Compose pulls the prebuilt image; no Dockerfile or source files are needed. To update it later, run `docker compose pull panelbook` followed by `docker compose up -d panelbook`. The `panelbook-data` volume remains in place.
 
 ## Build from source with Docker Compose
 
@@ -16,7 +18,7 @@ Create a small Debian or Ubuntu VM in Proxmox with a stable private IP. Install 
 
 Copy `.env.example` to `.env` and set `PANELBOOK_BIND_IP` to the VM's private IP. This chooses which VM address Docker listens on; it does **not** restrict which client IPs can connect. Use `0.0.0.0` if Docker needs to listen on all IPv4 interfaces, and use firewall rules to restrict source IPs or LAN subnets. Leave `PANELBOOK_PUBLIC_SCHEME=http` for direct LAN access. Set it to `https` when using the reverse proxy below. Do not forward port 8765 from your router. Docker-published ports can bypass UFW rules, so use the Proxmox firewall or Docker's [`DOCKER-USER` filtering](https://docs.docker.com/engine/network/packet-filtering-firewalls/) when limiting access to this port.
 
-The included `compose.yaml` is ready to use after setting `.env`. Its contents are:
+The included `compose.build.yaml` is ready to use after setting `.env`. Its contents are:
 
 ```yaml
 name: panelbook
@@ -52,8 +54,8 @@ From the extracted directory, run:
 ```sh
 cp .env.example .env
 # Edit .env to use this VM's private IP before continuing.
-docker compose up -d --build
-docker compose ps
+docker compose -f compose.build.yaml up -d --build
+docker compose -f compose.build.yaml ps
 ```
 
 Panelbook runs as a non-root user with a read-only filesystem; only the `panelbook-data` volume is writable. Docker keeps the volume across rebuilds and `docker compose down`. Do not run `docker compose down -v`, which deletes it. The server uses HTTP-only session cookies, adds the `Secure` attribute in HTTPS mode, and disables the Windows in-app updater and local-only login on this hosted address.
@@ -77,11 +79,24 @@ When `PANELBOOK_PUBLIC_SCHEME=https`, use the HTTPS domain for login. The direct
 
 ## Create accounts and share homes
 
-Get the one-time first-account setup code from the container logs (`docker compose logs panelbook`, or the container's logs in Arcane). Enter it on the setup page at your chosen HTTP or HTTPS URL to create the administrator login. Keep the code and logs private. In **Users**, create a login for each person. The owner of a home can use **Share home** to grant **Viewer** access (read, print, and export) or **Editor** access (change panels). Only the owner can change or remove a share. A new user also receives a private home. Users can change their own passwords from **Password**. The administrator's **Users** dialog can reset another user's password or delete a user; a deleted user's homes move to the administrator. A home's owner can delete it with **Delete home**, and someone it is shared with can use **Leave home**. Every account keeps at least one home.
+Get the one-time first-account setup code from the container logs (`docker compose logs panelbook`, or the container's logs in Arcane). Enter it on the setup page at your chosen HTTP or HTTPS URL to create the super admin login. Keep the code and logs private. The super admin can open **Admin settings** to create users, assign or remove ordinary admins, and make setup codes. Any admin can create and delete standard users, reset their passwords, and make or revoke setup codes. A one-time code is consumed by the first successful registration; an unlimited-use code works until an admin revokes it. Give a code to someone so they can choose **Create account with setup code** on the sign-in page and set their own password. Codes are shown only once when created. The super admin account cannot be deleted or demoted in the app; ordinary admins cannot manage other admins. The owner of a home can use **Share home** to grant **Viewer** access (read, print, and export) or **Editor** access (change panels). Only the owner can change or remove a share. A new user also receives a private home. Users can change their own passwords from **Password**. A deleted user's homes move to the admin who deleted them. A home's owner can delete it with **Delete home**, and someone it is shared with can use **Leave home**. Every account keeps at least one home.
+
+### Upgrade an existing installation to super admin
+
+Keep the existing `panelbook-data` volume and deploy a version of Panelbook with this feature. On first startup, the database migration automatically makes the earliest existing administrator the super admin. Their username, password, homes, and sessions remain in place. Sign in with that account and open **Admin settings**; no fresh setup code or database reset is needed.
+
+For the pull-based Compose project, update the image and recreate only the service:
+
+```sh
+docker compose pull panelbook
+docker compose up -d panelbook
+```
+
+In Arcane, pull the updated image and redeploy the project with its existing `panelbook-data` volume. For a source-built project, use `docker compose -f compose.build.yaml up -d --build panelbook`. Existing projects using `compose.pull.yaml` can keep using it. Do not delete the volume or run `docker compose down -v`. If an old database has no administrator, the migration promotes its oldest account; check the **Admin settings** label after upgrading.
 
 ### Reset a forgotten password
 
-The administrator can reset anyone else's password in **Users**. If the administrator is locked out, run this on the VM and enter the new password when prompted. Existing sign-ins for that user end:
+An administrator can reset a standard user's password in **Admin settings**; the super admin can also reset an ordinary admin's password. If the super admin is locked out, run this on the VM and enter the new password when prompted. Existing sign-ins for that user end:
 
 ```sh
 docker exec -it panelbook-panelbook-1 python program/server.py --data-dir /data --reset-password USERNAME
@@ -122,7 +137,7 @@ To restore that backup, stop the server and run:
 docker run --rm -v panelbook-data:/data -v "$PWD:/backup:ro" alpine sh -c 'rm -f /data/panelbook.sqlite3* && tar -xzf /backup/panelbook-data-backup.tgz -C /data && chown -R 10001:10001 /data'
 ```
 
-Keep a backup outside the VM as well. To update a source build, save a backup, extract the new server ZIP over the existing app files (keep `.env`), and run `docker compose up -d --build`. The volume and accounts stay in place. For an Arcane deployment, redeploy the project to pull the latest image. Check the container status and logs after updating.
+Keep a backup outside the VM as well. To update a source build, save a backup, extract the new server ZIP over the existing app files (keep `.env`), and run `docker compose -f compose.build.yaml up -d --build`. The volume and accounts stay in place. For an Arcane deployment, redeploy the project to pull the latest image. Check the container status and logs after updating.
 
 ## Move data from /var/panelbook/data
 
@@ -136,6 +151,6 @@ Earlier builds stored the database in `/var/panelbook/data` on the VM and starte
    docker run --rm -v /var/panelbook/data:/from:ro -v panelbook-data:/to alpine sh -c 'cp -a /from/. /to/ && chown -R 10001:10001 /to'
    ```
 
-4. Replace the project's Compose file with the current `compose.pull.yaml` (Arcane) or `compose.yaml` (source build), then deploy or run `docker compose up -d`.
+4. Use the current `compose.yaml` for the prebuilt image and run `docker compose up -d`, or use `compose.build.yaml` for a source build and run `docker compose -f compose.build.yaml up -d --build`. Existing Arcane projects can keep their `compose.pull.yaml` configuration.
 
 Sign in and check your homes. Keep `/var/panelbook/data` as a backup until you are satisfied, then remove it with `sudo rm -r /var/panelbook/data`.

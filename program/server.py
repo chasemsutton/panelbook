@@ -24,7 +24,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-VERSION = "0.5.0.1"
+VERSION = "0.5.0.2"
 ROOT = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 PROGRAM_LAYOUT = ROOT.name.lower() == "program"
 APP_ROOT = ROOT.parent if PROGRAM_LAYOUT else ROOT
@@ -35,7 +35,7 @@ STATIC = {"/": ("panelbook.html", "text/html; charset=utf-8"),
 SESSION_AGE = 7 * 24 * 60 * 60
 MAX_BODY = 20 * 1024 * 1024
 MAX_PUBLIC_BODY = 64 * 1024
-PUBLIC_POSTS = ("/api/setup", "/api/setup/local", "/api/login")
+PUBLIC_POSTS = ("/api/setup", "/api/setup/local", "/api/login", "/api/register")
 REQUEST_TIMEOUT = 30
 MAX_ID = 2**53 - 1
 RELEASES_URL = "https://api.github.com/repos/chasemsutton/panelbook/releases?per_page=30"
@@ -217,6 +217,7 @@ def initialize_database(path):
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 password_hash TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0,
+                is_super_admin INTEGER NOT NULL DEFAULT 0,
                 is_local INTEGER NOT NULL DEFAULT 0,
                 auto_close INTEGER NOT NULL DEFAULT 0
             );
@@ -234,7 +235,18 @@ def initialize_database(path):
                 role TEXT NOT NULL CHECK(role IN ('owner','editor','viewer')),
                 PRIMARY KEY(home_id,user_id)
             );
+            CREATE TABLE IF NOT EXISTS setup_codes (
+                id INTEGER PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE,
+                unlimited INTEGER NOT NULL CHECK(unlimited IN (0,1)),
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+            );
         """)
+        if "is_super_admin" not in {row["name"] for row in db.execute("PRAGMA table_info(users)")}:
+            db.execute("ALTER TABLE users ADD COLUMN is_super_admin INTEGER NOT NULL DEFAULT 0")
+            first = db.execute("SELECT id FROM users ORDER BY is_admin DESC,id LIMIT 1").fetchone()
+            if first:
+                db.execute("UPDATE users SET is_admin=1,is_super_admin=1 WHERE id=?", (first["id"],))
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_super_admin ON users(is_super_admin) WHERE is_super_admin=1")
         if "is_local" not in {row["name"] for row in db.execute("PRAGMA table_info(users)")}:
             db.execute("ALTER TABLE users ADD COLUMN is_local INTEGER NOT NULL DEFAULT 0")
         if "auto_close" not in {row["name"] for row in db.execute("PRAGMA table_info(users)")}:
@@ -371,7 +383,7 @@ class PanelbookHandler(BaseHTTPRequestHandler):
         except (KeyError, ValueError):
             return None
         digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        user = db.execute("""SELECT s.token_hash,s.csrf,s.expires_at,u.id,u.username,u.is_admin,u.is_local
+        user = db.execute("""SELECT s.token_hash,s.csrf,s.expires_at,u.id,u.username,u.is_admin,u.is_super_admin,u.is_local
                              FROM sessions s JOIN users u ON u.id=s.user_id
                              WHERE s.token_hash=? AND s.expires_at>?""", (digest, int(time.time()))).fetchone()
         if user is not None and user["is_local"] and not self.is_local_request():
@@ -486,14 +498,14 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                         token = self.create_session(db, local_user["id"])
                         db.commit()
                         cookie = self.session_cookie(token)
-                        user = db.execute("""SELECT s.token_hash,s.csrf,s.expires_at,u.id,u.username,u.is_admin,u.is_local
+                        user = db.execute("""SELECT s.token_hash,s.csrf,s.expires_at,u.id,u.username,u.is_admin,u.is_super_admin,u.is_local
                             FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=?""",
                             (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
                 self.json_response({"version": VERSION, "needsSetup": needs_setup, "localMode": self.server.local_mode,
                                     "canUseLocal": bool(needs_setup and self.is_local_request()),
                                     "autoClose": bool(user and user["is_local"] and self.server.auto_close_enabled),
                                     "canUpdate": bool(user and user["is_admin"] and self.server.local_mode and os.name == "nt" and getattr(sys, "frozen", False) and PROGRAM_LAYOUT),
-                                    "user": None if user is None else {"id": user["id"], "username": user["username"], "isAdmin": bool(user["is_admin"]), "isLocal": bool(user["is_local"])},
+                                    "user": None if user is None else {"id": user["id"], "username": user["username"], "isAdmin": bool(user["is_admin"]), "isSuperAdmin": bool(user["is_super_admin"]), "isLocal": bool(user["is_local"])},
                                     "csrf": None if user is None else user["csrf"]}, cookie=cookie)
                 return
             user = self.require_user(db)
@@ -508,9 +520,15 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 self.json_response({"homes": homes})
                 return
             if path == "/api/users":
-                users = db.execute("SELECT id,username,is_admin FROM users ORDER BY username COLLATE NOCASE").fetchall()
-                self.json_response({"users": [{"id": row["id"], "username": row["username"], "isAdmin": bool(row["is_admin"])}
+                users = db.execute("SELECT id,username,is_admin,is_super_admin FROM users ORDER BY username COLLATE NOCASE").fetchall()
+                self.json_response({"users": [{"id": row["id"], "username": row["username"], "isAdmin": bool(row["is_admin"]), "isSuperAdmin": bool(row["is_super_admin"])}
                                               for row in users]})
+                return
+            if path == "/api/setup-codes":
+                if not user["is_admin"] or user["is_local"]:
+                    raise ApiError(403, "Only an administrator can manage setup codes.")
+                rows = db.execute("SELECT id,unlimited FROM setup_codes ORDER BY id DESC").fetchall()
+                self.json_response({"codes": [{"id": row["id"], "unlimited": bool(row["unlimited"])} for row in rows]})
                 return
             parts = path.strip("/").split("/")
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "homes" and parts[3] == "members":
@@ -536,7 +554,7 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 if not hmac.compare_digest(str(data.get("setupToken", "")), self.server.setup_token):
                     raise ApiError(403, "Enter the setup code shown by the server.")
                 username = self.valid_username(data.get("username"))
-                cursor = db.execute("INSERT INTO users(username,password_hash,is_admin) VALUES(?,?,1)",
+                cursor = db.execute("INSERT INTO users(username,password_hash,is_admin,is_super_admin) VALUES(?,?,1,1)",
                                     (username, password_hash(data.get("password"))))
                 create_home(db, cursor.lastrowid)
                 token = self.create_session(db, cursor.lastrowid)
@@ -550,7 +568,7 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 db.execute("BEGIN IMMEDIATE")
                 if db.execute("SELECT COUNT(*) FROM users").fetchone()[0]:
                     raise ApiError(409, "Initial setup is complete.")
-                cursor = db.execute("INSERT INTO users(username,password_hash,is_admin,is_local,auto_close) VALUES('Local','',1,1,1)")
+                cursor = db.execute("INSERT INTO users(username,password_hash,is_admin,is_super_admin,is_local,auto_close) VALUES('Local','',1,1,1,1)")
                 create_home(db, cursor.lastrowid)
                 token = self.create_session(db, cursor.lastrowid)
                 db.commit()
@@ -577,6 +595,28 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 token = self.create_session(db, row["id"])
                 db.commit()
                 self.json_response({"ok": True}, cookie=self.session_cookie(token))
+                return
+            if path == "/api/register":
+                code = data.get("setupCode")
+                if not isinstance(code, str) or not 16 <= len(code) <= 256:
+                    raise ApiError(403, "Invalid setup code.")
+                username = self.valid_username(data.get("username"))
+                db.execute("BEGIN IMMEDIATE")
+                code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+                code_row = db.execute("SELECT id,unlimited FROM setup_codes WHERE code_hash=?", (code_hash,)).fetchone()
+                if code_row is None:
+                    raise ApiError(403, "Invalid setup code.")
+                new_hash = password_hash(data.get("password"))
+                try:
+                    cursor = db.execute("INSERT INTO users(username,password_hash) VALUES(?,?)", (username, new_hash))
+                except sqlite3.IntegrityError:
+                    raise ApiError(409, "That username is already in use.")
+                create_home(db, cursor.lastrowid)
+                if not code_row["unlimited"]:
+                    db.execute("DELETE FROM setup_codes WHERE id=?", (code_row["id"],))
+                token = self.create_session(db, cursor.lastrowid)
+                db.commit()
+                self.json_response({"ok": True}, 201, self.session_cookie(token))
                 return
             if public:
                 raise ApiError(404, "Not found.")
@@ -654,7 +694,28 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 db.commit()
                 self.json_response({"user": {"id": cursor.lastrowid, "username": username}}, 201)
                 return
+            if path == "/api/setup-codes":
+                if not user["is_admin"] or user["is_local"]:
+                    raise ApiError(403, "Only an administrator can manage setup codes.")
+                if type(data.get("unlimited")) is not bool:
+                    raise ApiError(400, "Choose a one-time or unlimited-use code.")
+                code = secrets.token_urlsafe(24)
+                cursor = db.execute("INSERT INTO setup_codes(code_hash,unlimited,created_by) VALUES(?,?,?)",
+                                    (hashlib.sha256(code.encode()).hexdigest(), int(data["unlimited"]), user["id"]))
+                db.commit()
+                self.json_response({"id": cursor.lastrowid, "code": code, "unlimited": data["unlimited"]}, 201)
+                return
             parts = path.strip("/").split("/")
+            if len(parts) == 4 and parts[:2] == ["api", "users"] and parts[3] == "admin":
+                if not user["is_super_admin"]:
+                    raise ApiError(403, "Only the super admin can assign administrators.")
+                target = self.require_admin_target(db, user, parts[2])
+                if type(data.get("isAdmin")) is not bool:
+                    raise ApiError(400, "Choose whether this user is an administrator.")
+                db.execute("UPDATE users SET is_admin=? WHERE id=?", (int(data["isAdmin"]), target["id"]))
+                db.commit()
+                self.json_response({"ok": True})
+                return
             if len(parts) == 4 and parts[:2] == ["api", "users"] and parts[3] == "password":
                 target = self.require_admin_target(db, user, parts[2])
                 new_hash = password_hash(data.get("password"))
@@ -774,6 +835,15 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 db.commit()
                 self.json_response({"ok": True})
                 return
+            if len(parts) == 3 and parts[:2] == ["api", "setup-codes"]:
+                if not user["is_admin"] or user["is_local"]:
+                    raise ApiError(403, "Only an administrator can manage setup codes.")
+                code_id = int(parts[2]) if parts[2].isdecimal() else 0
+                if not db.execute("DELETE FROM setup_codes WHERE id=?", (code_id,)).rowcount:
+                    raise ApiError(404, "Setup code not found.")
+                db.commit()
+                self.json_response({"ok": True})
+                return
         raise ApiError(404, "Not found.")
 
     def require_admin_target(self, db, user, raw_id):
@@ -782,9 +852,11 @@ class PanelbookHandler(BaseHTTPRequestHandler):
         target_id = int(raw_id) if raw_id.isdecimal() else 0
         if target_id == user["id"]:
             raise ApiError(400, "Use Password to change your own login.")
-        target = db.execute("SELECT id FROM users WHERE id=?", (target_id,)).fetchone()
+        target = db.execute("SELECT id,is_admin,is_super_admin FROM users WHERE id=?", (target_id,)).fetchone()
         if target is None:
             raise ApiError(404, "User not found.")
+        if target["is_super_admin"] or target["is_admin"] and not user["is_super_admin"]:
+            raise ApiError(403, "Only the super admin can manage another administrator.")
         return target
 
     def require_other_home(self, db, user_id, home_id):

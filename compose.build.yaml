@@ -1,0 +1,24 @@
+name: panelbook
+
+services:
+  panelbook:
+    build: .
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m
+    environment:
+      - PANELBOOK_PUBLIC_SCHEME
+    volumes:
+      - panelbook-data:/data
+    ports:
+      - "${PANELBOOK_BIND_IP:?Set PANELBOOK_BIND_IP in .env}:8765:8765"
+
+volumes:
+  panelbook-data:
+    name: panelbook-data

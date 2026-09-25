@@ -50,13 +50,13 @@ class Client:
 class ServerTests(unittest.TestCase):
     def test_update_uses_single_portable_asset(self):
         releases = [
-            {"tag_name": "v0.5.0.3", "assets": [{"name": "Panelbook-Server-v0.5.0.3.zip", "digest": "sha256:" + "a" * 64}]},
-            {"tag_name": "v0.5.0.2", "assets": [{"name": "Panelbook-Portable-v0.5.0.2.zip", "digest": "sha256:" + "b" * 64,
+            {"tag_name": "v0.5.0.4", "assets": [{"name": "Panelbook-Server-v0.5.0.4.zip", "digest": "sha256:" + "a" * 64}]},
+            {"tag_name": "v0.5.0.3", "assets": [{"name": "Panelbook-Portable-v0.5.0.3.zip", "digest": "sha256:" + "b" * 64,
                                                   "browser_download_url": "https://example.test/release.zip"}]},
         ]
         with patch("program.server.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(releases).encode())):
             release = available_release()
-        self.assertEqual(release["version"], "v0.5.0.2")
+        self.assertEqual(release["version"], "v0.5.0.3")
         self.assertEqual(release["digest"], "b" * 64)
         self.assertLess(version_tuple("v0.5.0"), version_tuple("v0.5.0.1"))
         self.assertLess(version_tuple("v0.5.0.99"), version_tuple("v0.5.1"))
@@ -108,6 +108,73 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertFalse(status["localMode"])
         self.assertEqual(status["user"]["username"], "owner")
+        self.assertTrue(status["user"]["isSuperAdmin"])
+
+    def test_admin_roles_and_setup_codes(self):
+        owner = Client(self.base)
+        owner.status()
+        code, _ = owner.request("/api/setup", "POST", {
+            "username": "owner", "password": "a long sample password", "setupToken": self.server.setup_token
+        })
+        self.assertEqual(code, 201)
+        _, owner_status = owner.status()
+        self.assertTrue(owner_status["user"]["isSuperAdmin"])
+        code, created = owner.request("/api/users", "POST", {"username": "admin", "password": "another long password"})
+        self.assertEqual(code, 201)
+        admin_id = created["user"]["id"]
+        code, _ = owner.request(f"/api/users/{admin_id}/admin", "POST", {"isAdmin": True})
+        self.assertEqual(code, 200)
+        admin = Client(self.base)
+        code, _ = admin.request("/api/login", "POST", {"username": "admin", "password": "another long password"})
+        self.assertEqual(code, 200)
+        admin.status()
+        code, _ = admin.request(f"/api/users/{owner_status['user']['id']}", "DELETE", {})
+        self.assertEqual(code, 403)
+        code, _ = admin.request(f"/api/users/{owner_status['user']['id']}/admin", "POST", {"isAdmin": False})
+        self.assertEqual(code, 403)
+        code, _ = admin.request("/api/users", "POST", {"username": "member", "password": "a member password"})
+        self.assertEqual(code, 201)
+        code, one = admin.request("/api/setup-codes", "POST", {"unlimited": False})
+        self.assertEqual(code, 201)
+        with closing(sqlite3.connect(self.db)) as db:
+            self.assertNotEqual(db.execute("SELECT code_hash FROM setup_codes WHERE id=?", (one["id"],)).fetchone()[0], one["code"])
+        signup = Client(self.base)
+        code, _ = signup.request("/api/register", "POST", {"username": "newuser", "password": "a new user password", "setupCode": one["code"]})
+        self.assertEqual(code, 201)
+        _, signup_status = signup.status()
+        self.assertFalse(signup_status["user"]["isAdmin"])
+        code, _ = signup.request("/api/users", "POST", {"username": "denied", "password": "a denied password"})
+        self.assertEqual(code, 403)
+        code, _ = signup.request("/api/setup-codes", "POST", {"unlimited": True})
+        self.assertEqual(code, 403)
+        code, _ = Client(self.base).request("/api/register", "POST", {"username": "second", "password": "a second password", "setupCode": one["code"]})
+        self.assertEqual(code, 403)
+        code, shared = owner.request("/api/setup-codes", "POST", {"unlimited": True})
+        self.assertEqual(code, 201)
+        for username in ("second", "third"):
+            code, _ = Client(self.base).request("/api/register", "POST", {"username": username, "password": "a shared password", "setupCode": shared["code"]})
+            self.assertEqual(code, 201)
+        code, _ = admin.request(f"/api/setup-codes/{shared['id']}", "DELETE", {})
+        self.assertEqual(code, 200)
+        code, _ = Client(self.base).request("/api/register", "POST", {"username": "fourth", "password": "a shared password", "setupCode": shared["code"]})
+        self.assertEqual(code, 403)
+        code, _ = owner.request(f"/api/users/{admin_id}/admin", "POST", {"isAdmin": False})
+        self.assertEqual(code, 200)
+        code, _ = admin.request("/api/setup-codes", "POST", {"unlimited": True})
+        self.assertEqual(code, 403)
+
+    def test_existing_database_promotes_original_admin(self):
+        legacy = Path(self.temp.name) / "legacy.sqlite3"
+        with closing(sqlite3.connect(legacy)) as db:
+            db.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, password_hash TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0)")
+            db.execute("INSERT INTO users(username,password_hash,is_admin) VALUES('first','hash',1)")
+            db.execute("INSERT INTO users(username,password_hash,is_admin) VALUES('second','hash',0)")
+            db.commit()
+        initialize_database(legacy)
+        initialize_database(legacy)
+        with closing(sqlite3.connect(legacy)) as db:
+            rows = db.execute("SELECT username,is_admin,is_super_admin FROM users ORDER BY id").fetchall()
+        self.assertEqual(rows, [("first", 1, 1), ("second", 0, 0)])
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
