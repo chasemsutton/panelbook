@@ -76,10 +76,13 @@ th button[data-direction="desc"]::after{content:"▼"}
 
 /* Keep wide editing tables inside their own scrollport on mobile browsers. */
 .table-scroll{contain:layout}
-.directory-search{display:grid;grid-template-columns:minmax(0,1fr) minmax(160px,220px);gap:12px;padding:0 24px 18px}
+.directory-search{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,200px) minmax(200px,260px);gap:12px;padding:0 24px 18px}
 .directory-search label{display:grid;gap:6px;min-width:0;color:#607185;font-size:11px;font-weight:800}
 .directory-search input,.directory-search select{width:100%;min-width:0;min-height:38px;border:1px solid #dbe3eb;border-radius:7px;background:#fff;padding:8px 11px;color:#203348;font-size:13px;font-weight:600}
 .directory-search .search-status{grid-column:1/-1;margin:0;color:#647588;font-size:12px}
+.search-results td{font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+.search-results td:first-child{font-weight:800}
+@media(max-width:900px){.directory-search{grid-template-columns:repeat(2,minmax(0,1fr))}.directory-search label:first-child{grid-column:1/-1}}
 @media(max-width:700px){.directory-search{grid-template-columns:minmax(0,1fr);padding:0 18px 16px}}
 
 /* Scopes live beside their action and stay usable when the header wraps. */
