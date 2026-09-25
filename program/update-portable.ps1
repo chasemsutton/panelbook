@@ -53,6 +53,21 @@ function Write-StartupOutput {
   }
 }
 
+function Wait-ServerStopped {
+  try { Wait-Process -Id $ServerPid -Timeout 60 -ErrorAction Stop } catch {
+    if (Get-Process -Id $ServerPid -ErrorAction SilentlyContinue) { throw 'Panelbook did not close for the update.' }
+  }
+  for ($attempt = 0; $attempt -lt 60; $attempt++) {
+    try {
+      $listener = Invoke-RestMethod -Uri $statusUrl -TimeoutSec 2
+      Start-Sleep -Milliseconds 500
+    } catch [System.Net.WebException] {
+      return
+    }
+  }
+  throw "Another Panelbook server (version $($listener.version)) is still listening on port $Port. Close it before updating."
+}
+
 function Copy-WithRetry([string]$source, [string]$destination) {
   for ($attempt = 0; $attempt -lt 60; $attempt++) {
     try {
@@ -81,22 +96,7 @@ try {
       throw "The release is missing $name."
     }
   }
-  try { Wait-Process -Id $ServerPid -Timeout 60 -ErrorAction Stop } catch {
-    if (Get-Process -Id $ServerPid -ErrorAction SilentlyContinue) { throw 'Panelbook did not close for the update.' }
-  }
-  $portReleased = $false
-  for ($attempt = 0; $attempt -lt 60; $attempt++) {
-    try {
-      $listener = Invoke-RestMethod -Uri $statusUrl -TimeoutSec 2
-      Start-Sleep -Milliseconds 500
-    } catch [System.Net.WebException] {
-      $portReleased = $true
-      break
-    }
-  }
-  if (-not $portReleased) {
-    throw "Another Panelbook server (version $($listener.version)) is still listening on port $Port. Close it before updating."
-  }
+  Wait-ServerStopped
   $stopped = $true
   foreach ($name in $files) {
     $target = Join-Path $app $name
@@ -164,6 +164,16 @@ try {
   if ($keepWork) {
     try { Write-UpdateLog "Recovery copies retained in $backup." } catch { }
   }
+  if (-not $stopped) {
+    # The server shuts down as soon as it starts this helper, so a failed
+    # download or check still needs the previous version restarted.
+    try {
+      Wait-ServerStopped
+      $stopped = $true
+    } catch {
+      try { Write-UpdateLog "Not restarting the previous version: $($_.Exception.Message)" } catch { }
+    }
+  }
   if ($stopped -and $restored) {
     try {
       $oldProcess = Start-Panelbook
@@ -178,7 +188,7 @@ try {
         } catch { }
       }
       if (-not $oldReady) { throw 'Previous version did not respond after rollback.' }
-      Write-UpdateLog 'Previous version restarted.'
+      Write-UpdateLog "Previous version restarted as process $($oldProcess.Id)."
     }
     catch {
       Write-UpdateLog "Could not restart the previous version: $($_.Exception.Message)"

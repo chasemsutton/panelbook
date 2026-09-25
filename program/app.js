@@ -25,6 +25,7 @@
   let saveQueue = Promise.resolve();
   let saveBlocked = false;
   let appEventsWired = false;
+  let resetUserId = null;
 
   async function api(path,method="GET",data) {
     const options={method,credentials:"same-origin",headers:{}};
@@ -335,6 +336,7 @@
   function renderNavigation() {
     const current=home(),select=el("homeSelect");
     select.innerHTML=workbook.homes.map(h=>`<option value="${h.id}"${h.id===current.id?" selected":""}>${escapeHTML(h.name||"Untitled home")}</option>`).join("");
+    el("removeHomeBtn").textContent=current.role==="owner"?"Delete home":"Leave home";
     const nav=el("panelNav");nav.innerHTML="";
     function leafCount(panel){const children=current.panels.filter(p=>p.parentPanelId===panel.id);return children.length?children.reduce((total,child)=>total+leafCount(child),0):1;}
     function treeWidth(panel){const leaves=leafCount(panel);return leaves*200+(leaves-1)*12;}
@@ -689,6 +691,24 @@
     el("shareUser").innerHTML=users.users.filter(user=>user.id!==owner?.id).map(user=>`<option value="${user.id}">${escapeHTML(user.username)}</option>`).join("");
     el("shareMembers").innerHTML=members.members.map(member=>`<div><span>${escapeHTML(member.username)} · ${member.role}</span>${member.role==="owner"?"":`<button class="button" type="button" data-remove-user="${member.id}">Remove</button>`}</div>`).join("");
   }
+  async function refreshUsersDialog() {
+    const {users}=await api("/api/users");
+    el("userList").innerHTML=users.map(user=>`<div><span>${escapeHTML(user.username)}${user.isAdmin?" · admin":""}${user.id===currentUser.id?" · you":""}</span>${user.id===currentUser.id?"":`<span><button class="button" type="button" data-reset-user="${user.id}" data-name="${escapeHTML(user.username)}">Reset password</button> <button class="button danger-button" type="button" data-delete-user="${user.id}" data-name="${escapeHTML(user.username)}">Delete</button></span>`}</div>`).join("");
+    return users;
+  }
+  async function removeHome() {
+    const current=home(),owner=current.role==="owner";
+    const message=owner
+      ? `Delete ${current.name||"this home"} and all of its panels? Everyone it is shared with loses access. This cannot be undone; export a backup first if needed.`
+      : `Leave ${current.name||"this home"}? The owner can share it with you again.`;
+    if(!confirm(message))return;
+    try{
+      await saveQueue.catch(()=>{});
+      await api(owner?`/api/homes/${current.id}`:`/api/homes/${current.id}/members/${currentUser.id}`,"DELETE",{});
+      await loadWorkspace();selected=1;renderAll();
+      notify(owner?"Home deleted.":"You left the home.",true);
+    }catch(error){notify(error.message);}
+  }
   function wireAccountEvents() {
     window.addEventListener("pagehide",()=>{
       if(!localTabId || !currentUser?.isLocal)return;
@@ -751,11 +771,26 @@
     });
     el("passwordCloseBtn").addEventListener("click",()=>el("passwordDialog").close());
     el("passwordSaveBtn").addEventListener("click",async()=>{try{await api("/api/account/password","POST",{currentPassword:el("currentPassword").value,newPassword:el("newPassword").value});el("passwordDialog").close();notify("Password changed.",true);}catch(error){alert(error.message);}});
-    el("manageUsersBtn").addEventListener("click",()=>{el("newUsername").value="";el("newUserPassword").value="";el("usersDialog").showModal();});
+    el("manageUsersBtn").addEventListener("click",async()=>{try{el("newUsername").value="";el("newUserPassword").value="";await refreshUsersDialog();el("usersDialog").showModal();}catch(error){notify(error.message);}});
     el("usersCloseBtn").addEventListener("click",()=>el("usersDialog").close());
-    el("usersSaveBtn").addEventListener("click",async()=>{try{const result=await api("/api/users","POST",{username:el("newUsername").value.trim(),password:el("newUserPassword").value});el("usersDialog").close();notify(`User ${result.user.username} created. Share a home to grant access.`,true);}catch(error){alert(error.message);}});
+    el("usersSaveBtn").addEventListener("click",async()=>{try{const result=await api("/api/users","POST",{username:el("newUsername").value.trim(),password:el("newUserPassword").value});el("newUsername").value="";el("newUserPassword").value="";await refreshUsersDialog();notify(`User ${result.user.username} created. Share a home to grant access.`,true);}catch(error){alert(error.message);}});
+    el("userList").addEventListener("click",async event=>{
+      const reset=event.target.closest("[data-reset-user]"),remove=event.target.closest("[data-delete-user]");
+      const name=(reset||remove)?.dataset.name;
+      if(reset){resetUserId=Number(reset.dataset.resetUser);el("resetPasswordTitle").textContent=`Reset password for ${name}`;el("resetPassword").value="";el("resetPasswordDialog").showModal();return;}
+      if(!remove || !confirm(`Delete ${name}? Homes they own will move to you, and their login will stop working.`))return;
+      try{
+        await api(`/api/users/${remove.dataset.deleteUser}`,"DELETE",{});
+        await refreshUsersDialog();
+        await saveQueue.catch(()=>{});await loadWorkspace();renderAll();
+        notify(`${name} deleted.`,true);
+      }catch(error){alert(error.message);}
+    });
+    el("resetPasswordCloseBtn").addEventListener("click",()=>el("resetPasswordDialog").close());
+    el("resetPasswordSaveBtn").addEventListener("click",async()=>{try{await api(`/api/users/${resetUserId}/password`,"POST",{password:el("resetPassword").value});el("resetPasswordDialog").close();notify("Password reset.",true);}catch(error){alert(error.message);}});
     el("shareHomeBtn").addEventListener("click",async()=>{try{await refreshShareDialog();el("shareDialog").showModal();}catch(error){notify(error.message);}});
     el("shareCloseBtn").addEventListener("click",()=>el("shareDialog").close());
+    el("removeHomeBtn").addEventListener("click",removeHome);
     el("shareSaveBtn").addEventListener("click",async()=>{try{const userId=Number(el("shareUser").value);if(!userId)throw Error("Choose a user.");await api(`/api/homes/${home().id}/members/${userId}`,"PUT",{role:el("shareRole").value});await refreshShareDialog();notify("Home access updated.",true);}catch(error){alert(error.message);}});
     el("shareMembers").addEventListener("click",async event=>{const button=event.target.closest("[data-remove-user]");if(!button)return;try{await api(`/api/homes/${home().id}/members/${button.dataset.removeUser}`,"DELETE",{});await refreshShareDialog();notify("Home access removed.",true);}catch(error){alert(error.message);}});
   }

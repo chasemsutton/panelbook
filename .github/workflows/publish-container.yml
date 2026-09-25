@@ -38,20 +38,17 @@ jobs:
           image="ghcr.io/${GITHUB_REPOSITORY,,}:$version"
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           docker build --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t "$image" .
-          data_dir="$RUNNER_TEMP/panelbook-data"
-          mkdir -p "$data_dir"
-          chmod 755 "$data_dir"
+          volume=panelbook-publish-smoke
           container="$(docker run -d --init --read-only --security-opt no-new-privileges:true \
-            --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add SETGID --cap-add SETUID \
-            --tmpfs /tmp:rw,nosuid,noexec,size=64m -v "$data_dir:/data" \
+            --cap-drop ALL --tmpfs /tmp:rw,nosuid,noexec,size=64m -v "$volume:/data" \
             -p 127.0.0.1:8765:8765 "$image")"
-          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true; docker volume rm -f "$volume" >/dev/null 2>&1 || true' EXIT
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8765/api/status > /tmp/panelbook-status.json; then break; fi
             sleep 1
           done
           python -c 'import json,sys; actual=json.load(open("/tmp/panelbook-status.json"))["version"]; assert actual==sys.argv[1], (actual,sys.argv[1])' "$app_version"
-          test "$(stat -c %u "$data_dir")" != 0
+          test "$(docker exec "$container" id -u)" = 10001
           export CONTAINER_ID="$container"
           python - <<'PY'
           import json

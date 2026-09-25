@@ -1,6 +1,7 @@
 """Panelbook's portable and hosted HTTP server. Uses only the Python standard library."""
 
 import argparse
+import getpass
 import hashlib
 import hmac
 import ipaddress
@@ -33,6 +34,9 @@ STATIC = {"/": ("panelbook.html", "text/html; charset=utf-8"),
           "/styles.css": ("styles.css", "text/css; charset=utf-8")}
 SESSION_AGE = 7 * 24 * 60 * 60
 MAX_BODY = 20 * 1024 * 1024
+MAX_PUBLIC_BODY = 64 * 1024
+PUBLIC_POSTS = ("/api/setup", "/api/setup/local", "/api/login")
+REQUEST_TIMEOUT = 30
 MAX_ID = 2**53 - 1
 RELEASES_URL = "https://api.github.com/repos/chasemsutton/panelbook/releases?per_page=30"
 
@@ -94,16 +98,17 @@ def initial_panel(panel_id):
 
 
 def validate_home(home):
+    """Return a copy of home that holds only known, validated fields."""
     if not isinstance(home, dict) or not isinstance(home.get("name"), str) or not 1 <= len(home["name"].strip()) <= 80:
         raise ApiError(400, "Invalid home name.")
     panels = home.get("panels")
     if not isinstance(panels, list) or not 1 <= len(panels) <= 100:
         raise ApiError(400, "A home must have 1 to 100 panels.")
-    panel_ids = set()
+    clean_panels = []
+    circuit_ids_by_panel = {}
     for panel in panels:
-        if not isinstance(panel, dict) or not valid_id(panel.get("id")) or panel["id"] in panel_ids:
+        if not isinstance(panel, dict) or not valid_id(panel.get("id")) or panel["id"] in circuit_ids_by_panel:
             raise ApiError(400, "Invalid or duplicate panel ID.")
-        panel_ids.add(panel["id"])
         if panel.get("kind") not in ("main", "sub") or not isinstance(panel.get("name"), str) or len(panel["name"]) > 80:
             raise ApiError(400, "Invalid panel details.")
         spaces = panel.get("spaces")
@@ -123,7 +128,7 @@ def validate_home(home):
         next_point = panel.get("nextPointId")
         if not valid_id(next_circuit) or not valid_id(next_point):
             raise ApiError(400, "Invalid circuit or point numbering.")
-        circuit_ids, assignments = set(), set()
+        circuit_ids, assignments, clean_circuits = set(), set(), []
         for circuit in circuits:
             if not isinstance(circuit, dict) or not valid_id(circuit.get("id")) or circuit["id"] >= next_circuit or circuit["id"] in circuit_ids:
                 raise ApiError(400, "Invalid circuit ID.")
@@ -133,41 +138,55 @@ def validate_home(home):
                 raise ApiError(400, "Invalid circuit assignment.")
             if assignment:
                 assignments.add(assignment)
-            if not isinstance(circuit.get("name"), str) or len(circuit["name"]) > 100 or circuit.get("voltage") not in (120, 240) or circuit.get("labelMode") not in ("circuits", "points"):
+            voltage = circuit.get("voltage")
+            if not isinstance(circuit.get("name"), str) or len(circuit["name"]) > 100 or type(voltage) is not int or voltage not in (120, 240) or circuit.get("labelMode") not in ("circuits", "points"):
                 raise ApiError(400, "Invalid circuit details.")
             amps = circuit.get("amps")
             if amps is not None and (type(amps) is not int or not 1 <= amps <= 400):
                 raise ApiError(400, "Invalid circuit rating.")
             if circuit.get("gauge") not in ("", "14", "12", "10", "8", "6", "4", "2", "1/0"):
                 raise ApiError(400, "Invalid wire gauge.")
-        point_ids = set()
+            clean_circuits.append({"id": circuit["id"], "name": circuit["name"], "assignment": assignment, "voltage": voltage,
+                                   "amps": amps, "gauge": circuit["gauge"], "labelMode": circuit["labelMode"]})
+        point_ids, clean_points = set(), []
         for point in points:
             if not isinstance(point, dict) or not valid_id(point.get("id")) or point["id"] >= next_point or point["id"] in point_ids:
                 raise ApiError(400, "Invalid point ID.")
             point_ids.add(point["id"])
-            if point.get("circuitId") is not None and point["circuitId"] not in circuit_ids:
+            circuit_id = point.get("circuitId")
+            if circuit_id is not None and (not valid_id(circuit_id) or circuit_id not in circuit_ids):
                 raise ApiError(400, "Point references a missing circuit.")
             if not isinstance(point.get("name"), str) or len(point["name"]) > 160 or not isinstance(point.get("location"), str) or len(point["location"]) > 500:
                 raise ApiError(400, "Invalid point details.")
-    by_id = {panel["id"]: panel for panel in panels}
-    if not any(panel["kind"] == "main" for panel in panels):
+            clean_points.append({"id": point["id"], "circuitId": circuit_id, "name": point["name"], "location": point["location"]})
+        circuit_ids_by_panel[panel["id"]] = circuit_ids
+        clean_panels.append({"id": panel["id"], "name": panel["name"], "kind": panel["kind"],
+                             "parentPanelId": panel.get("parentPanelId"), "parentCircuitId": panel.get("parentCircuitId"),
+                             "spaces": spaces, "types": dict(types), "circuits": clean_circuits, "nextCircuitId": next_circuit,
+                             "points": clean_points, "nextPointId": next_point})
+    by_id = {panel["id"]: panel for panel in clean_panels}
+    if not any(panel["kind"] == "main" for panel in clean_panels):
         raise ApiError(400, "Each home needs a main panel.")
-    for panel in panels:
-        parent_id, circuit_id = panel.get("parentPanelId"), panel.get("parentCircuitId")
+    for panel in clean_panels:
+        parent_id, circuit_id = panel["parentPanelId"], panel["parentCircuitId"]
         if panel["kind"] == "main":
             if parent_id is not None or circuit_id is not None:
                 raise ApiError(400, "A main panel cannot have a feeder.")
             continue
         if not valid_id(parent_id) or parent_id not in by_id or parent_id == panel["id"] or circuit_id is not None and not valid_id(circuit_id):
             raise ApiError(400, "Invalid subpanel feeder.")
+        if circuit_id is not None and circuit_id not in circuit_ids_by_panel[parent_id]:
+            # The app shows a missing feeder as "feeder required". Store it the
+            # same way so older data with a stale link can still be saved.
+            panel["parentCircuitId"] = None
         seen = {panel["id"]}
         cursor = by_id[parent_id]
         while cursor:
             if cursor["id"] in seen:
                 raise ApiError(400, "Circular subpanel link.")
             seen.add(cursor["id"])
-            cursor = by_id.get(cursor.get("parentPanelId"))
-    return {"name": home["name"].strip(), "panels": panels}
+            cursor = by_id.get(cursor["parentPanelId"])
+    return {"name": home["name"].strip(), "panels": clean_panels}
 
 
 def connect_db(path):
@@ -303,6 +322,7 @@ class PanelbookServer(ThreadingHTTPServer):
 
 class PanelbookHandler(BaseHTTPRequestHandler):
     server: PanelbookServer
+    timeout = REQUEST_TIMEOUT
 
     def log_message(self, format, *args):
         print("%s - %s" % (self.address_string(), format % args), flush=True)
@@ -320,12 +340,12 @@ class PanelbookHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def request_json(self):
+    def request_json(self, limit=MAX_BODY):
         if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
             raise ApiError(415, "Expected JSON.")
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if length < 1 or length > MAX_BODY:
+            if length < 1 or length > limit:
                 raise ApiError(413, "Request is empty or too large.")
             data = json.loads(self.rfile.read(length))
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
@@ -392,6 +412,7 @@ class PanelbookHandler(BaseHTTPRequestHandler):
     def create_session(self, db, user_id):
         token = secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
+        db.execute("DELETE FROM sessions WHERE expires_at<=?", (int(time.time()),))
         db.execute("INSERT INTO sessions(token_hash,csrf,user_id,expires_at) VALUES(?,?,?,?)",
                    (hashlib.sha256(token.encode()).hexdigest(), csrf, user_id, int(time.time()) + SESSION_AGE))
         return token
@@ -477,14 +498,19 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 return
             user = self.require_user(db)
             if path == "/api/workspace":
+                if not db.execute("SELECT 1 FROM memberships WHERE user_id=?", (user["id"],)).fetchone():
+                    # A shared home can be deleted by its owner; give the account a fresh home.
+                    create_home(db, user["id"])
+                    db.commit()
                 rows = db.execute("""SELECT h.id,h.name,h.content,h.revision,m.role FROM homes h
                                      JOIN memberships m ON m.home_id=h.id WHERE m.user_id=? ORDER BY h.id""", (user["id"],)).fetchall()
                 homes = [{"id": row["id"], **json.loads(row["content"]), "revision": row["revision"], "role": row["role"]} for row in rows]
                 self.json_response({"homes": homes})
                 return
             if path == "/api/users":
-                users = db.execute("SELECT id,username FROM users ORDER BY username COLLATE NOCASE").fetchall()
-                self.json_response({"users": [dict(row) for row in users]})
+                users = db.execute("SELECT id,username,is_admin FROM users ORDER BY username COLLATE NOCASE").fetchall()
+                self.json_response({"users": [{"id": row["id"], "username": row["username"], "isAdmin": bool(row["is_admin"])}
+                                              for row in users]})
                 return
             parts = path.strip("/").split("/")
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "homes" and parts[3] == "members":
@@ -497,8 +523,12 @@ class PanelbookHandler(BaseHTTPRequestHandler):
         raise ApiError(404, "Not found.")
 
     def post_route(self, path):
-        data = self.request_json()
+        public = path in PUBLIC_POSTS
         with database(self.server.db_path) as db:
+            # Check the session before reading the body so only signed-in
+            # users can send large requests.
+            user = None if public else self.require_user(db, mutate=True)
+            data = self.request_json(MAX_PUBLIC_BODY if public else MAX_BODY)
             if path == "/api/setup":
                 db.execute("BEGIN IMMEDIATE")
                 if db.execute("SELECT COUNT(*) FROM users").fetchone()[0]:
@@ -548,7 +578,8 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 db.commit()
                 self.json_response({"ok": True}, cookie=self.session_cookie(token))
                 return
-            user = self.require_user(db, mutate=True)
+            if public:
+                raise ApiError(404, "Not found.")
             if path == "/api/account/convert":
                 if not user["is_local"] or not self.is_local_request():
                     raise ApiError(403, "Only a local-only workspace can be converted here.")
@@ -623,6 +654,15 @@ class PanelbookHandler(BaseHTTPRequestHandler):
                 db.commit()
                 self.json_response({"user": {"id": cursor.lastrowid, "username": username}}, 201)
                 return
+            parts = path.strip("/").split("/")
+            if len(parts) == 4 and parts[:2] == ["api", "users"] and parts[3] == "password":
+                target = self.require_admin_target(db, user, parts[2])
+                new_hash = password_hash(data.get("password"))
+                db.execute("UPDATE users SET password_hash=? WHERE id=?", (new_hash, target["id"]))
+                db.execute("DELETE FROM sessions WHERE user_id=?", (target["id"],))
+                db.commit()
+                self.json_response({"ok": True})
+                return
             if path == "/api/import":
                 imported = self.import_legacy(db, user["id"], data)
                 db.commit()
@@ -658,10 +698,10 @@ class PanelbookHandler(BaseHTTPRequestHandler):
         raise ApiError(404, "Not found.")
 
     def put_route(self, path):
-        data = self.request_json()
         parts = path.strip("/").split("/")
         with database(self.server.db_path) as db:
             user = self.require_user(db, mutate=True)
+            data = self.request_json()
             if len(parts) == 3 and parts[:2] == ["api", "homes"]:
                 home_id = int(parts[2]) if parts[2].isdecimal() else 0
                 self.require_role(db, home_id, user["id"], ("owner", "editor"))
@@ -700,18 +740,56 @@ class PanelbookHandler(BaseHTTPRequestHandler):
         parts = path.strip("/").split("/")
         with database(self.server.db_path) as db:
             user = self.require_user(db, mutate=True)
+            if len(parts) == 3 and parts[:2] == ["api", "homes"]:
+                home_id = int(parts[2]) if parts[2].isdecimal() else 0
+                self.require_role(db, home_id, user["id"], ("owner",))
+                self.require_other_home(db, user["id"], home_id)
+                db.execute("DELETE FROM homes WHERE id=?", (home_id,))
+                db.commit()
+                self.json_response({"ok": True})
+                return
             if len(parts) == 5 and parts[:2] == ["api", "homes"] and parts[3] == "members":
                 home_id = int(parts[2]) if parts[2].isdecimal() else 0
                 member_id = int(parts[4]) if parts[4].isdecimal() else 0
-                self.require_role(db, home_id, user["id"], ("owner",))
-                row = db.execute("SELECT role FROM memberships WHERE home_id=? AND user_id=?", (home_id, member_id)).fetchone()
-                if row is None or row["role"] == "owner":
-                    raise ApiError(400, "The owner cannot be removed.")
+                if member_id == user["id"]:
+                    # Any editor or viewer can leave a home shared with them.
+                    self.require_role(db, home_id, user["id"], ("editor", "viewer"))
+                    self.require_other_home(db, user["id"], home_id)
+                else:
+                    self.require_role(db, home_id, user["id"], ("owner",))
+                    row = db.execute("SELECT role FROM memberships WHERE home_id=? AND user_id=?", (home_id, member_id)).fetchone()
+                    if row is None or row["role"] == "owner":
+                        raise ApiError(400, "The owner cannot be removed.")
                 db.execute("DELETE FROM memberships WHERE home_id=? AND user_id=?", (home_id, member_id))
                 db.commit()
                 self.json_response({"ok": True})
                 return
+            if len(parts) == 3 and parts[:2] == ["api", "users"]:
+                target = self.require_admin_target(db, user, parts[2])
+                # Keep the deleted user's homes: the administrator becomes their owner.
+                db.execute("""INSERT INTO memberships(home_id,user_id,role)
+                              SELECT home_id,?,'owner' FROM memberships WHERE user_id=? AND role='owner'
+                              ON CONFLICT(home_id,user_id) DO UPDATE SET role='owner'""", (user["id"], target["id"]))
+                db.execute("DELETE FROM users WHERE id=?", (target["id"],))
+                db.commit()
+                self.json_response({"ok": True})
+                return
         raise ApiError(404, "Not found.")
+
+    def require_admin_target(self, db, user, raw_id):
+        if not user["is_admin"] or user["is_local"]:
+            raise ApiError(403, "Only an administrator can manage users.")
+        target_id = int(raw_id) if raw_id.isdecimal() else 0
+        if target_id == user["id"]:
+            raise ApiError(400, "Use Password to change your own login.")
+        target = db.execute("SELECT id FROM users WHERE id=?", (target_id,)).fetchone()
+        if target is None:
+            raise ApiError(404, "User not found.")
+        return target
+
+    def require_other_home(self, db, user_id, home_id):
+        if not db.execute("SELECT 1 FROM memberships WHERE user_id=? AND home_id<>?", (user_id, home_id)).fetchone():
+            raise ApiError(409, "Add another home first; every account needs at least one.")
 
     @staticmethod
     def valid_username(value):
@@ -758,6 +836,30 @@ class PanelbookHandler(BaseHTTPRequestHandler):
         return imported
 
 
+def reset_password(db_path, username):
+    """Set a new password from the console, for example when the only administrator is locked out."""
+    with database(db_path) as db:
+        user = db.execute("SELECT id,is_local FROM users WHERE username=? COLLATE NOCASE", (username,)).fetchone()
+        if user is None:
+            raise SystemExit("No user named %r exists." % username)
+        if user["is_local"]:
+            raise SystemExit("A local-only workspace has no password. Open it on this machine and choose Create login.")
+    if sys.stdin.isatty():
+        password = getpass.getpass("New password for %s: " % username)
+        if getpass.getpass("Repeat the new password: ") != password:
+            raise SystemExit("The passwords do not match.")
+    else:
+        password = sys.stdin.readline().rstrip("\r\n")
+    try:
+        new_hash = password_hash(password)
+    except ApiError as error:
+        raise SystemExit(str(error))
+    with database(db_path) as db:
+        db.execute("UPDATE users SET password_hash=? WHERE id=?", (new_hash, user["id"]))
+        db.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))
+    print("Password changed for %s. Existing sign-ins for this user were ended." % username)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Panelbook local or hosted server")
     parser.add_argument("--host", default="127.0.0.1")
@@ -765,12 +867,22 @@ def main():
     parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--secure-cookies", action="store_true", help="Use when served through HTTPS")
+    parser.add_argument("--reset-password", metavar="USERNAME",
+                        help="Set a new password for USERNAME, then exit without starting the server")
     args = parser.parse_args()
     public_scheme = os.environ.get("PANELBOOK_PUBLIC_SCHEME", "http").lower()
     if public_scheme not in ("http", "https"):
         parser.error("PANELBOOK_PUBLIC_SCHEME must be http or https")
     db_path = (args.data_dir or APP_ROOT / "data") / "panelbook.sqlite3"
-    initialize_database(db_path)
+    try:
+        initialize_database(db_path)
+    except (OSError, sqlite3.OperationalError) as error:
+        user = " (uid %d)" % os.getuid() if hasattr(os, "getuid") else ""
+        raise SystemExit("Could not open %s: %s. Its folder must be writable by the user running Panelbook%s."
+                         % (db_path, error, user))
+    if args.reset_password is not None:
+        reset_password(db_path, args.reset_password)
+        return
     local_mode = args.host in ("127.0.0.1", "localhost", "::1")
     server = PanelbookServer((args.host, args.port), db_path, args.secure_cookies or public_scheme == "https", local_mode)
     url = "http://127.0.0.1:%d/" % args.port
