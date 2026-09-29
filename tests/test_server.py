@@ -54,7 +54,8 @@ class ServerTests(unittest.TestCase):
             {"tag_name": "v0.5.0.8", "assets": [{"name": "Panelbook-Portable-v0.5.0.8.zip", "digest": "sha256:" + "b" * 64,
                                                   "browser_download_url": "https://example.test/release.zip"}]},
         ]
-        with patch("program.server.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(releases).encode())):
+        with patch("program.server.VERSION", "0.5.0.7"), \
+             patch("program.server.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(releases).encode())):
             release = available_release()
         self.assertEqual(release["version"], "v0.5.0.8")
         self.assertEqual(release["digest"], "b" * 64)
