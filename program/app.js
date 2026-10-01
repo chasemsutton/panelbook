@@ -7,6 +7,10 @@
   const phone = window.matchMedia("(max-width:700px)");
   const SORT_FIELDS = {circuits:["assignment","name","voltage","amps","gauge","labelMode"],points:["circuitId","name","location","id"]};
   const GAUGES = {"14":15,"12":20,"10":30,"8":40,"6":55,"4":70,"2":95,"1/0":125};
+  const VERIFICATION_LABELS = {unverified:"Unverified",confirmed:"Confirmed","needs-recheck":"Needs rechecking"};
+  const PROTECTION_LABELS = {unknown:"Unknown / not recorded",none:"No GFCI / AFCI",gfci:"GFCI",afci:"AFCI",dual:"GFCI + AFCI"};
+  const emptyVerification = () => ({status:"unverified",verifiedAt:"",verifiedBy:""});
+  const emptyProtection = () => ({type:"unknown",device:"",resetLocation:""});
   const el = id => document.getElementById(id);
   const escapeHTML = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
   const makePanel = (id,name,kind="main",parentPanelId=null) => ({id,name,kind,parentPanelId,parentCircuitId:null,spaces:24,types:{},circuits:[],nextCircuitId:1,points:[],nextPointId:1});
@@ -30,6 +34,7 @@
   let saveBlocked = false;
   let appEventsWired = false;
   let resetUserId = null;
+  let detailCircuitId = null;
 
   async function api(path,method="GET",data) {
     const options={method,credentials:"same-origin",headers:{}};
@@ -142,15 +147,112 @@
   function circuitAt(key) { return state.circuits.find(c => c.assignment === key); }
   function pointsFor(id) { return state.points.filter(p => p.circuitId === id); }
   function circuitFor(id) { return state.circuits.find(c => c.id === id); }
+  function verificationOf(record) { return record.verification || emptyVerification(); }
+  function protectionOf(circuit,point=null) { return point?.protection || circuit?.protection || emptyProtection(); }
+  function protectionSearch(record) { return `${PROTECTION_LABELS[record.type]} ${record.device} ${record.resetLocation}`; }
+  function verificationBadge(record) {
+    const status=verificationOf(record).status;
+    return `<span class="verification-badge ${status}">${VERIFICATION_LABELS[status]}</span>`;
+  }
+  function verificationNote(record) {
+    const v=verificationOf(record);
+    return v.verifiedAt?`${v.status==="confirmed"?"Confirmed":"Last confirmed"} ${new Date(v.verifiedAt).toLocaleString()} · ${v.verifiedBy}`:"No confirmation recorded";
+  }
+  function invalidateMapping(record) {
+    if(verificationOf(record).status==="confirmed")record.verification={...record.verification,status:"needs-recheck"};
+  }
+  function setVerification(record,status,assigned) {
+    if(!Object.hasOwn(VERIFICATION_LABELS,status) || (status==="confirmed" && !assigned))return false;
+    record.verification=status==="confirmed"
+      ? {status,verifiedAt:new Date().toISOString(),verifiedBy:currentUser?.isLocal?"Local workspace":currentUser?.username || "Local workspace"}
+      : status==="unverified"?emptyVerification():{...verificationOf(record),status};
+    return true;
+  }
+  function verificationSelect(record,id,attributes,assigned=true) {
+    return `<select id="${id}" ${attributes}>${Object.entries(VERIFICATION_LABELS).map(([value,label])=>`<option value="${value}"${verificationOf(record).status===value?" selected":""}${value==="confirmed"&&!assigned?" disabled":""}>${label}</option>`).join("")}</select>`;
+  }
+  function protectionFields(protection,prefix,attributes,inherit=false) {
+    const values=protection || emptyProtection();
+    return `<div class="detail-fields"><label class="dialog-field">Protection type<select id="${prefix}Type" ${attributes} data-protection-field="type">${inherit?`<option value=""${!protection?" selected":""}>Use circuit record</option>`:""}${Object.entries(PROTECTION_LABELS).map(([value,label])=>`<option value="${value}"${protection&&values.type===value?" selected":""}>${label}</option>`).join("")}</select></label><label class="dialog-field">Protective device<input id="${prefix}Device" ${attributes} data-protection-field="device" maxlength="160" placeholder="e.g. Hall bathroom GFCI outlet" value="${escapeHTML(values.device)}"${inherit&&!protection?" disabled":""}></label><label class="dialog-field detail-wide">Reset location<textarea id="${prefix}Reset" ${attributes} data-protection-field="resetLocation" maxlength="500" rows="2" placeholder="e.g. Hall bathroom, left of the sink"${inherit&&!protection?" disabled":""}>${escapeHTML(values.resetLocation)}</textarea></label></div>`;
+  }
+  function protectionSummary(protection) {
+    return `<span class="protection-type">${PROTECTION_LABELS[protection.type]}</span><dl class="reset-record"><div><dt>Protective device</dt><dd>${escapeHTML(protection.device||"Not recorded")}</dd></div><div><dt>Reset location</dt><dd>${escapeHTML(protection.resetLocation||"Not recorded")}</dd></div></dl>`;
+  }
+  function openCircuitDetail(circuitId,panelId=state.id) {
+    const panel=panelById(panelId);
+    if(!panel?.circuits.some(c=>c.id===circuitId))return;
+    if(state.id!==panel.id)choosePanel(panel.id);
+    detailCircuitId=circuitId;
+    renderCircuitDetail();
+    if(!el("circuitDetailDialog").open)el("circuitDetailDialog").showModal();
+  }
+  function renderCircuitDetail() {
+    if(detailCircuitId===null)return;
+    const c=circuitFor(detailCircuitId);
+    if(!c){el("circuitDetailDialog").close();return;}
+    const focusId=document.activeElement?.id;
+    const openEditors=[...el("circuitDetailBody").querySelectorAll("details[open]")].map(item=>item.querySelector("select").id);
+    const points=pointsFor(c.id),confirmed=points.filter(p=>verificationOf(p).status==="confirmed").length;
+    const protection=protectionOf(c),overrides=points.filter(p=>p.protection);
+    el("circuitDetailTitle").textContent=c.name||"Unnamed circuit";
+    el("circuitDetailContext").textContent=`${home().name} · ${state.name} · ${c.assignment?`Breaker ${c.assignment}`:"Unassigned breaker"}`;
+    const ancestors=[];
+    let cursor=state;
+    while(cursor.parentPanelId!==null){
+      const parent=panelById(cursor.parentPanelId);
+      if(!parent)break;
+      const feeder=parent.circuits.find(item=>item.id===cursor.parentCircuitId);
+      ancestors.unshift(`<li>${feeder?`<button class="detail-link" type="button" data-detail-circuit="${feeder.id}" data-detail-panel="${parent.id}">${escapeHTML(parent.name)} · breaker ${escapeHTML(feeder.assignment||"unassigned")}</button>`:`${escapeHTML(parent.name)} · feeder not assigned`}</li>`);
+      cursor=parent;
+    }
+    const children=feederChildren(state.id,c.id);
+    el("circuitDetailBody").innerHTML=`
+      <dl class="circuit-facts"><div><dt>Voltage</dt><dd>${c.voltage} V</dd></div><div><dt>Breaker rating</dt><dd>${c.amps==null?"Not recorded":`${c.amps} A`}</dd></div><div><dt>Wire gauge</dt><dd>${c.gauge?`${escapeHTML(c.gauge)} AWG`:"Not recorded"}</dd></div><div><dt>Points confirmed</dt><dd>${confirmed} / ${points.length}</dd></div></dl>
+      <section class="detail-section protection-section" aria-labelledby="detailProtectionTitle"><h3 id="detailProtectionTitle">Protection &amp; reset locations</h3><p class="detail-hint">Points use the circuit record unless their protection is recorded separately.</p><div class="reset-overview"><div><h4>Circuit record</h4>${protectionSummary(protection)}</div>${overrides.map(p=>`<div><h4>#${p.id} · ${escapeHTML(p.name||"Unnamed point")}</h4>${protectionSummary(p.protection)}</div>`).join("")}</div><details class="circuit-protection-editor"><summary>Edit circuit protection record</summary>${protectionFields(protection,"circuitProtection","data-circuit-protection")}</details></section>
+      <section class="detail-section" aria-labelledby="detailMappingTitle"><h3 id="detailMappingTitle">Breaker mapping ${verificationBadge(c)}</h3><label class="dialog-field">Verification status${verificationSelect(c,"circuitVerification","data-circuit-verification",!!c.assignment)}</label><p class="verification-note">${escapeHTML(verificationNote(c))}</p>${!c.assignment?`<p class="detail-hint">Assign a breaker in the circuits table before confirming this mapping.</p>`:""}</section>
+      ${ancestors.length||children.length?`<section class="detail-section"><h3>Panel connections</h3>${ancestors.length?`<h4>Upstream feeders</h4><ol class="feeder-path">${ancestors.join("")}</ol>`:""}${children.length?`<h4>Supplied subpanels</h4><div class="detail-panel-links">${children.map(p=>`<button type="button" class="button" data-detail-open-panel="${p.id}">${escapeHTML(p.name)} →</button>`).join("")}</div>`:""}</section>`:""}
+      <section class="detail-section" aria-labelledby="detailPointsTitle"><h3 id="detailPointsTitle">Connected outlets / switches <span class="count">${points.length}</span></h3><p class="detail-hint">Confirmation records the date and person. Changed breaker or circuit assignments flag confirmed mappings for rechecking.</p><div class="detail-points">${points.map(p=>`<article class="detail-point"><div class="detail-point-heading"><h4>#${p.id} · ${escapeHTML(p.name||"Unnamed point")}</h4>${verificationBadge(p)}</div><p class="point-description">${escapeHTML(p.location||"Location not recorded")}</p><div class="point-reset">${protectionSummary(protectionOf(c,p))}<small>${p.protection?"Recorded for this point":"Uses circuit record"}</small></div><label class="dialog-field">Mapping verification${verificationSelect(p,`pointVerification${p.id}`,`data-point-verification="${p.id}"`)}</label><p class="verification-note">${escapeHTML(verificationNote(p))}</p><details class="point-protection-editor"><summary>Record protection for this point</summary>${protectionFields(p.protection,`pointProtection${p.id}`,`data-protection-point="${p.id}"`,true)}</details></article>`).join("")||`<p class="detail-empty">No points are linked yet. Assign outlets / switches to this circuit to document what it supplies.</p>`}</div></section>`;
+    if(home().role==="viewer")for(const field of el("circuitDetailBody").querySelectorAll("input,select,textarea"))field.disabled=true;
+    el("detailSaveStatus").textContent=home().role==="viewer"?"View-only access":el("saveStatus").textContent;
+    for(const id of openEditors){const select=el(id);if(select)select.closest("details").open=true;}
+    if(focusId)el(focusId)?.focus({preventScroll:true});
+  }
+  function updateDetail(target) {
+    if(home().role==="viewer")return;
+    const c=circuitFor(detailCircuitId);
+    if(!c)return;
+    if(target.hasAttribute("data-circuit-verification"))setVerification(c,target.value,!!c.assignment);
+    else if(target.hasAttribute("data-point-verification")){
+      const p=pointsFor(c.id).find(item=>item.id===Number(target.dataset.pointVerification));
+      if(!p)return;
+      setVerification(p,target.value,p.circuitId!==null);
+    }else if(target.dataset.protectionField){
+      const field=target.dataset.protectionField;
+      if(!["type","device","resetLocation"].includes(field))return;
+      const pointId=target.dataset.protectionPoint;
+      const record=pointId?pointsFor(c.id).find(p=>p.id===Number(pointId)):c;
+      if(!record)return;
+      if(pointId && field==="type" && !target.value)record.protection=null;
+      else{
+        const next={...(record.protection||emptyProtection()),[field]:target.value};
+        record.protection=assertProtection(next);
+      }
+    }else return;
+    save();renderRows();renderPointRows();applyRole();renderCircuitDetail();
+  }
   function isCompatible(voltage,assignment) { return !assignment || (voltage === 240) === assignment.includes("/"); }
   function danger(c) { return Boolean(c.gauge && Number.isFinite(c.amps) && c.amps > GAUGES[c.gauge]); }
   function save() {
     queueHomeSave(home()?.id);
   }
+  function setSaveStatus(message) {
+    el("saveStatus").textContent=message;
+    el("detailSaveStatus").textContent=message;
+  }
   function queueHomeSave(homeId) {
     const h=workbook.homes.find(item=>item.id===homeId);
     if(!h || h.role==="viewer" || saveBlocked || homeSnapshot(h)===savedHomes.get(h.id))return;
-    el("saveStatus").textContent="Saving to data folder…";
+    setSaveStatus("Saving to data folder…");
     saveQueue=saveQueue.then(async()=>{
       const latest=workbook.homes.find(item=>item.id===h.id);
       if(!latest || latest.role==="viewer")return;
@@ -159,17 +261,32 @@
       const response=await api(`/api/homes/${h.id}`,"PUT",{name:latest.name,panels:latest.panels,revision:latest.revision});
       latest.revision=response.revision;
       savedHomes.set(h.id,snapshot);
-      el("saveStatus").textContent="Saved in data folder";
+      setSaveStatus("Saved in data folder");
       if(homeSnapshot(latest)!==snapshot)queueHomeSave(latest.id);
     }).catch(error=>{
-      el("saveStatus").textContent="Not saved · export a backup";
+      setSaveStatus("Not saved · export a backup");
       if(error.status===409)saveBlocked=true;
       notify(error.message);
     });
   }
   function notify(message, ok = false) {
     const node = el("message"); node.textContent = message; node.classList.toggle("ok", ok);
-    clearTimeout(messageTimer); messageTimer = setTimeout(() => { node.textContent = ""; }, 7000);
+    el("detailMessage").textContent=el("circuitDetailDialog").open?message:"";
+    clearTimeout(messageTimer); messageTimer = setTimeout(() => { node.textContent = "";el("detailMessage").textContent=""; }, 7000);
+  }
+  function assertVerification(value,assigned) {
+    if(!value || typeof value!=="object" || Array.isArray(value))throw Error("Invalid mapping verification.");
+    const {status="unverified",verifiedAt="",verifiedBy=""}=value;
+    if(typeof status!=="string" || !Object.hasOwn(VERIFICATION_LABELS,status) || typeof verifiedAt!=="string" || typeof verifiedBy!=="string" || verifiedBy.length>120 || !!verifiedAt!==!!verifiedBy.trim() || (status==="unverified" && (verifiedAt || verifiedBy)))throw Error("Invalid mapping verification.");
+    if(verifiedAt && (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(verifiedAt) || verifiedAt.startsWith("0000") || !Number.isFinite(Date.parse(verifiedAt)) || new Date(verifiedAt).toISOString()!==verifiedAt))throw Error("Invalid verification date.");
+    if(status==="confirmed" && (!assigned || !verifiedAt))throw Error("Assign the mapping and record its date and person before confirming it.");
+    return {status,verifiedAt,verifiedBy:verifiedBy.trim()};
+  }
+  function assertProtection(value) {
+    if(!value || typeof value!=="object" || Array.isArray(value))throw Error("Invalid protection record.");
+    const {type="unknown",device="",resetLocation=""}=value;
+    if(typeof type!=="string" || !Object.hasOwn(PROTECTION_LABELS,type) || typeof device!=="string" || device.length>160 || typeof resetLocation!=="string" || resetLocation.length>500)throw Error("Invalid protective device or reset location.");
+    return {type,device,resetLocation};
   }
   function assertPanel(data) {
     if (!data || !Number.isInteger(data.spaces) || data.spaces < 12 || data.spaces > 42 || data.spaces % 2 || typeof data.name !== "string" || !data.types || Array.isArray(data.types) || typeof data.types !== "object" || !Array.isArray(data.circuits) || !Number.isSafeInteger(data.nextCircuitId) || data.nextCircuitId < 1) throw Error("Invalid panel format.");
@@ -196,14 +313,16 @@
     const circuits = data.circuits.map(c => {
       if (!c || !Number.isSafeInteger(c.id) || c.id < 1 || c.id >= data.nextCircuitId || usedIds.has(c.id) || typeof c.name !== "string" || c.name.length > 100 || ![120,240].includes(c.voltage) || !["circuits","points"].includes(c.labelMode) || typeof c.assignment !== "string" || (c.assignment && (!allowed.has(c.assignment) || usedAssignments.has(c.assignment))) || !isCompatible(c.voltage,c.assignment) || !(c.amps === null || (Number.isInteger(c.amps) && c.amps > 0 && c.amps <= 400)) || typeof c.gauge !== "string" || (c.gauge && !(c.gauge in GAUGES))) throw Error("Invalid, conflicting, or incompatible circuit record.");
       usedIds.add(c.id); if (c.assignment) usedAssignments.add(c.assignment);
-      return {id:c.id,name:c.name,assignment:c.assignment,voltage:c.voltage,amps:c.amps,gauge:c.gauge,labelMode:c.labelMode};
+      return {id:c.id,name:c.name,assignment:c.assignment,voltage:c.voltage,amps:c.amps,gauge:c.gauge,labelMode:c.labelMode,
+        verification:assertVerification(c.verification===undefined?{}:c.verification,!!c.assignment),protection:assertProtection(c.protection===undefined?{}:c.protection)};
     });
     if (!Array.isArray(data.points) || data.points.length > 1000 || !Number.isSafeInteger(data.nextPointId) || data.nextPointId < 1) throw Error("Invalid point data.");
     const ids=new Set();
     const points=data.points.map(p=>{
       if (!p || !Number.isSafeInteger(p.id) || p.id < 1 || p.id >= data.nextPointId || ids.has(p.id) || typeof p.name !== "string" || p.name.length > 160 || typeof p.location !== "string" || p.location.length > 500 || !(p.circuitId === null || Number.isSafeInteger(p.circuitId) && usedIds.has(p.circuitId))) throw Error("Invalid or duplicate point of consumption.");
       ids.add(p.id);
-      return {id:p.id,circuitId:p.circuitId,name:p.name,location:p.location};
+      return {id:p.id,circuitId:p.circuitId,name:p.name,location:p.location,
+        verification:assertVerification(p.verification===undefined?{}:p.verification,p.circuitId!==null),protection:p.protection==null?null:assertProtection(p.protection)};
     });
     return {name:data.name,spaces:data.spaces,types,circuits,nextCircuitId:data.nextCircuitId,points,nextPointId:data.nextPointId};
   }
@@ -284,11 +403,14 @@
     if(table==="circuits")return {
       assignment:item.assignment||"Unassigned",name:item.name||"",voltage:`${item.voltage} V`,
       amps:item.amps==null?"":`${item.amps} A`,gauge:item.gauge?`${item.gauge} AWG`:"",
-      labelMode:item.labelMode==="points"?"Outlet / switch names":"Circuit name"
+      labelMode:item.labelMode==="points"?"Outlet / switch names":"Circuit name",
+      verification:VERIFICATION_LABELS[verificationOf(item).status],
+      protection:[protectionSearch(protectionOf(item)),...panel.points.filter(p=>p.circuitId===item.id&&p.protection).map(p=>protectionSearch(p.protection))].join(" ")
     };
     const circuit=panel.circuits.find(c=>c.id===item.circuitId);
     return {circuitId:circuit?`${circuit.assignment||"Unassigned"} · ${circuit.name||"Unnamed circuit"}`:"Unassigned",
-      name:item.name||"",location:item.location||"",id:String(item.id)};
+      name:item.name||"",location:item.location||"",id:String(item.id),verification:VERIFICATION_LABELS[verificationOf(item).status],
+      protection:protectionSearch(protectionOf(circuit,item))};
   }
   function searchPanels(scope) {
     if(scope==="panel")return [state];
@@ -310,7 +432,7 @@
     const values=table==="circuits"
       ? [panel.name||"Untitled panel",fields.assignment,item.name||"—",fields.voltage,fields.amps||"—",fields.gauge||"—",fields.labelMode]
       : [panel.name||"Untitled panel",fields.circuitId,item.name||"—",item.location||"—",String(item.id)];
-    return `<tr>${values.map(value=>`<td>${escapeHTML(value)}</td>`).join("")}<td><button class="button" type="button" data-open-search-panel="${panel.id}">Open panel</button></td></tr>`;
+    return `<tr>${values.map(value=>`<td>${escapeHTML(value)}</td>`).join("")}<td>${table==="circuits"?`<button class="button" type="button" data-detail-circuit="${item.id}" data-detail-panel="${panel.id}">Circuit details</button>`:`<button class="button" type="button" data-open-search-panel="${panel.id}">Open panel</button>`}</td></tr>`;
   }
   function applyTableSearch(table) {
     const prefix=table==="circuits"?"circuit":"point";
@@ -405,7 +527,7 @@
     el("selectionTitle").textContent = `Position ${designation(selected)}`;
     el("selectionHint").textContent = `${selected % 2 ? "Left" : "Right"} column · ${spansTwo(type) ? "both legs" : `leg ${leg(selected)}`}`;
     el("breakerType").value = type;
-    el("selectionInfo").textContent = keys.map(key => `${key}: ${circuitAt(key)?.name || "unassigned"}`).join(" · ");
+    el("selectionInfo").innerHTML = keys.map(key => {const c=circuitAt(key);return c?`<button class="detail-link" type="button" data-detail-circuit="${c.id}">${escapeHTML(key)}: ${escapeHTML(c.name||"Unnamed circuit")} →</button>`:`${escapeHTML(key)}: unassigned`;}).join("<br>");
     const linked=home().panels.filter(p=>p.parentPanelId===state.id && keys.some(key=>circuitAt(key)?.id===p.parentCircuitId));
     el("linkedPanels").innerHTML=linked.length ? `<strong>Subpanels fed here</strong>${linked.map(p=>`<button type="button" data-open-panel="${p.id}">${escapeHTML(p.name||"Untitled subpanel")} →</button>`).join("")}` : "";
   }
@@ -451,7 +573,7 @@
       const tr = document.createElement("tr"); tr.dataset.circuitId = c.id; tr.className = danger(c) ? "row-warning" : "";
       const options = [`<option value="">Unassigned</option>`,...keys.filter(k => isCompatible(c.voltage,k) && (k === c.assignment || !used.has(k))).map(k => `<option value="${escapeHTML(k)}"${k === c.assignment ? " selected" : ""}>${escapeHTML(k)}</option>`)].join("");
       const gaugeOptions = [`<option value="">—</option>`,...Object.keys(GAUGES).map(g => `<option value="${g}"${g === c.gauge ? " selected" : ""}>${g} AWG</option>`)].join("");
-      tr.innerHTML = `<td class="assignment-cell"><select data-field="assignment" aria-label="Breaker for ${escapeHTML(c.name || "circuit")}" title="${c.voltage} V positions only">${options}</select></td><td class="name-cell"><input data-field="name" aria-label="Friendly name for breaker ${escapeHTML(c.assignment || "unassigned")}" maxlength="100" placeholder="Kitchen lights" value="${escapeHTML(c.name)}"></td><td class="voltage-cell"><select data-field="voltage" aria-label="Voltage for ${escapeHTML(c.name || "circuit")}"><option value="120"${c.voltage === 120 ? " selected" : ""}>120 V</option><option value="240"${c.voltage === 240 ? " selected" : ""}>240 V</option></select></td><td class="amps-cell"><input data-field="amps" aria-label="Amps for ${escapeHTML(c.name || "circuit")}" type="number" min="1" max="400" step="1" placeholder="A" value="${c.amps ?? ""}"></td><td class="gauge-cell"><select data-field="gauge" aria-label="Wire gauge for ${escapeHTML(c.name || "circuit")}">${gaugeOptions}</select><div class="wire-warning">${danger(c) ? "Undersized wire" : ""}</div></td><td class="label-cell"><select data-field="labelMode" aria-label="Breaker label for ${escapeHTML(c.name || "circuit")}"><option value="circuits"${c.labelMode === "circuits" ? " selected" : ""}>Circuit name</option><option value="points"${c.labelMode === "points" ? " selected" : ""}>Outlet / switch names</option></select></td><td><button class="delete-btn" type="button" data-delete="${c.id}" aria-label="Delete circuit at ${escapeHTML(c.assignment || "unassigned")}" title="Delete circuit">×</button></td>`;
+      tr.innerHTML = `<td class="assignment-cell"><select data-field="assignment" aria-label="Breaker for ${escapeHTML(c.name || "circuit")}" title="${c.voltage} V positions only">${options}</select></td><td class="name-cell"><input data-field="name" aria-label="Friendly name for breaker ${escapeHTML(c.assignment || "unassigned")}" maxlength="100" placeholder="Kitchen lights" value="${escapeHTML(c.name)}"><div class="record-meta">${verificationBadge(c)}<button class="detail-link" type="button" data-detail-circuit="${c.id}" aria-label="Details for ${escapeHTML(c.name||"unnamed circuit")}">Details →</button></div></td><td class="voltage-cell"><select data-field="voltage" aria-label="Voltage for ${escapeHTML(c.name || "circuit")}"><option value="120"${c.voltage === 120 ? " selected" : ""}>120 V</option><option value="240"${c.voltage === 240 ? " selected" : ""}>240 V</option></select></td><td class="amps-cell"><input data-field="amps" aria-label="Amps for ${escapeHTML(c.name || "circuit")}" type="number" min="1" max="400" step="1" placeholder="A" value="${c.amps ?? ""}"></td><td class="gauge-cell"><select data-field="gauge" aria-label="Wire gauge for ${escapeHTML(c.name || "circuit")}">${gaugeOptions}</select><div class="wire-warning">${danger(c) ? "Undersized wire" : ""}</div></td><td class="label-cell"><select data-field="labelMode" aria-label="Breaker label for ${escapeHTML(c.name || "circuit")}"><option value="circuits"${c.labelMode === "circuits" ? " selected" : ""}>Circuit name</option><option value="points"${c.labelMode === "points" ? " selected" : ""}>Outlet / switch names</option></select></td><td><button class="delete-btn" type="button" data-delete="${c.id}" aria-label="Delete circuit at ${escapeHTML(c.assignment || "unassigned")}" title="Delete circuit">×</button></td>`;
       body.append(tr);
     }
     el("emptyCircuits").hidden = state.circuits.length > 0;
@@ -463,7 +585,7 @@
     for (const p of sortedRows("points")) {
       const tr=document.createElement("tr"); tr.dataset.pointId=String(p.id);
       const options=[`<option value="">Unassigned</option>`,...state.circuits.slice().sort((a,b)=>breakerOrder(a.assignment,b.assignment)).map(c=>`<option value="${c.id}"${p.circuitId === c.id ? " selected" : ""}>${escapeHTML(c.assignment || "Unassigned")} · ${escapeHTML(c.name || "Unnamed circuit")}</option>`)].join("");
-      tr.innerHTML=`<td class="point-circuit-cell"><select data-point-field="circuitId" aria-label="Circuit for point ${p.id}">${options}</select></td><td class="name-cell"><input data-point-field="name" aria-label="Point name ${p.id}" maxlength="160" placeholder="Guest room outlet" value="${escapeHTML(p.name)}"></td><td class="point-location-cell"><textarea data-point-field="location" aria-label="Location for point ${p.id}" maxlength="500" placeholder="Wall or room details">${escapeHTML(p.location)}</textarea></td><td class="serial-cell"><span>${p.id}</span></td><td><button class="delete-btn" type="button" data-delete-point="${p.id}" aria-label="Delete point ${p.id}" title="Delete point">×</button></td>`;
+      tr.innerHTML=`<td class="point-circuit-cell"><select data-point-field="circuitId" aria-label="Circuit for point ${p.id}">${options}</select></td><td class="name-cell"><input data-point-field="name" aria-label="Point name ${p.id}" maxlength="160" placeholder="Guest room outlet" value="${escapeHTML(p.name)}"><div class="record-meta">${verificationBadge(p)}${p.circuitId!==null?`<button class="detail-link" type="button" data-detail-circuit="${p.circuitId}">View circuit →</button>`:""}</div></td><td class="point-location-cell"><textarea data-point-field="location" aria-label="Location for point ${p.id}" maxlength="500" placeholder="Wall or room details">${escapeHTML(p.location)}</textarea></td><td class="serial-cell"><span>${p.id}</span></td><td><button class="delete-btn" type="button" data-delete-point="${p.id}" aria-label="Delete point ${p.id}" title="Delete point">×</button></td>`;
       body.append(tr);
     }
     el("emptyPoints").hidden=state.points.length>0;
@@ -482,7 +604,7 @@
     el("importBtn").disabled=readonly;
     for(const id of ["renameHomeBtn","addMainBtn","addSubBtn","convertPanelBtn","deletePanelBtn","addCircuitBtn","addPointBtn","panelName","spaceCount","breakerType","parentPanelSelect","feederCircuitSelect"])
       el(id).disabled=readonly;
-    for(const field of document.querySelectorAll("#circuitRows input,#circuitRows select,#circuitRows button,#pointRows input,#pointRows select,#pointRows textarea,#pointRows button"))field.disabled=readonly;
+    for(const field of document.querySelectorAll("#circuitRows input,#circuitRows select,#circuitRows button:not([data-detail-circuit]),#pointRows input,#pointRows select,#pointRows textarea,#pointRows button:not([data-detail-circuit])"))field.disabled=readonly;
   }
   function convert(n,type) {
     const current = kind(n); if (current === type) return;
@@ -499,7 +621,10 @@
     if (existing && !isCompatible(existing.voltage,newKey)) {
       notify(`Move the ${existing.voltage} V circuit off position ${oldKey} before changing its breaker type.`);el("breakerType").value=current;return;
     }
-    if (existing) existing.assignment=newKey;
+    if (existing) {
+      if(existing.assignment!==newKey){invalidateMapping(existing);for(const p of pointsFor(existing.id))invalidateMapping(p);}
+      existing.assignment=newKey;
+    }
     if (type === "single") delete state.types[n]; else state.types[n] = type;
     renderAll(); notify(`Position ${n} is now ${type.replace("double","double-pole")}.`,true);
   }
@@ -515,13 +640,13 @@
   function addCircuit() {
     el("circuitSearch").value="";
     const id=state.nextCircuitId++;
-    state.circuits.push({id,name:"",assignment:"",voltage:120,amps:null,gauge:"",labelMode:"circuits"});
+    state.circuits.push({id,name:"",assignment:"",voltage:120,amps:null,gauge:"",labelMode:"circuits",verification:emptyVerification(),protection:emptyProtection()});
     renderAll(); el("circuitRows").querySelector(`[data-circuit-id="${id}"] [data-field="name"]`)?.focus();
   }
   function addPoint() {
     el("pointSearch").value="";
     const id=state.nextPointId++;
-    state.points.push({id,circuitId:null,name:"",location:""});
+    state.points.push({id,circuitId:null,name:"",location:"",verification:emptyVerification(),protection:null});
     renderAll(); el("pointRows").querySelector(`[data-point-id="${id}"] [data-point-field="name"]`)?.focus();
   }
   function updateWarning(row,c) {
@@ -531,6 +656,7 @@
     const row=target.closest("tr"); if (!row) return;
     const c=circuitFor(Number(row.dataset.circuitId)),field=target.dataset.field;
     if (!c || !field) return;
+    const previousAssignment=c.assignment,previousVoltage=c.voltage;
     const children=feederChildren(state.id,c.id);
     if (field==="amps") {
       const value=target.value.trim();
@@ -549,6 +675,7 @@
       if (!isCompatible(c.voltage,target.value)) { notify("Breaker and voltage do not match."); renderRows(); return; }
       c.assignment=target.value;
     } else c[field]=target.value;
+    if(c.assignment!==previousAssignment || c.voltage!==previousVoltage){invalidateMapping(c);for(const p of pointsFor(c.id))invalidateMapping(p);}
     if(!c.assignment) for(const child of feederChildren(state.id,c.id)) child.parentCircuitId=null;
     save(); updateWarning(row,c); renderPanel(); renderTotals();
     if(field==="name" || field==="assignment" || field==="voltage" || field==="amps") renderNavigation();
@@ -560,7 +687,11 @@
     const row=target.closest("tr"); if (!row) return;
     const p=state.points.find(item=>item.id===Number(row.dataset.pointId)),field=target.dataset.pointField;
     if (!p || !field) return;
-    if (field==="circuitId") p.circuitId=target.value ? Number(target.value) : null;
+    if (field==="circuitId") {
+      const next=target.value ? Number(target.value) : null;
+      if(p.circuitId!==next)invalidateMapping(p);
+      p.circuitId=next;
+    }
     else p[field]=target.value;
     save(); renderPanel();
     if (commit && (field==="circuitId" || sorts.points.key===field)) renderPointRows();
@@ -933,6 +1064,17 @@
   }
   function wireEvents() {
     wireMobileEvents();
+    document.addEventListener("click",event=>{
+      const button=event.target.closest("[data-detail-circuit]");
+      if(button)openCircuitDetail(Number(button.dataset.detailCircuit),Number(button.dataset.detailPanel||state.id));
+    });
+    el("circuitDetailCloseBtn").addEventListener("click",()=>el("circuitDetailDialog").close());
+    el("circuitDetailDialog").addEventListener("close",()=>{detailCircuitId=null;});
+    el("circuitDetailBody").addEventListener("change",event=>updateDetail(event.target));
+    el("circuitDetailBody").addEventListener("click",event=>{
+      const button=event.target.closest("[data-detail-open-panel]");
+      if(button){el("circuitDetailDialog").close();choosePanel(Number(button.dataset.detailOpenPanel));if(phone.matches)setMobileView("layout");}
+    });
     el("checkUpdatesBtn").addEventListener("click",checkPortableUpdate);
     el("updateCancelBtn").addEventListener("click",()=>el("updateDialog").close());
     el("updateInstallBtn").addEventListener("click",installPortableUpdate);
@@ -964,14 +1106,22 @@
     el("importTargetPanel").addEventListener("change",updateImportFields);
     el("importParent").addEventListener("change",e=>{el("importFeeder").innerHTML=feederOptions(e.target.value,null,null,pendingPanelImport?.circuits||[]);});
     el("panelImportDialog").addEventListener("close",()=>{try{if(el("panelImportDialog").returnValue==="confirm")finishPanelImport();}catch(error){notify(error.message);}finally{pendingPanelImport=null;}});
-    el("panelGrid").addEventListener("click",e=>{const btn=e.target.closest("[data-position]");if(!btn)return;selected=Number(btn.dataset.position);renderPanel();});
+    el("panelGrid").addEventListener("click",e=>{
+      const btn=e.target.closest("[data-position]");if(!btn)return;
+      selected=Number(btn.dataset.position);
+      const part=e.target.closest(".half,.quad-part");
+      const key=part?.querySelector(".num")?.textContent || designation(selected);
+      const circuit=circuitAt(key);
+      renderPanel();
+      if(circuit)openCircuitDetail(circuit.id);
+    });
     el("breakerType").addEventListener("change",e=>convert(selected,e.target.value));
     el("spaceCount").addEventListener("change",e=>setSpaces(Number(e.target.value)));
     el("panelName").addEventListener("input",e=>{state.name=e.target.value;save();el("panelCaption").textContent=state.name.trim().toUpperCase()||"UNTITLED PANEL";renderNavigation();});
     el("addCircuitBtn").addEventListener("click",addCircuit);
     el("circuitRows").addEventListener("input",e=>{if(e.target.matches('[data-field="name"],[data-field="amps"]'))updateCircuit(e.target,false);});
     el("circuitRows").addEventListener("change",e=>{if(e.target.matches('[data-field="assignment"],[data-field="voltage"],[data-field="gauge"],[data-field="labelMode"],[data-field="name"],[data-field="amps"]'))updateCircuit(e.target,true);});
-    el("circuitRows").addEventListener("click",e=>{const btn=e.target.closest("[data-delete]");if(!btn)return;const id=Number(btn.dataset.delete),c=circuitFor(id);if(!c)return;const linked=pointsFor(id).length,subpanels=feederChildren(state.id,id).length;if(!confirm(`Delete ${c.name||"this circuit"}${c.assignment?` at breaker ${c.assignment}`:""}?${linked?` ${linked} linked point${linked===1?"":"s"} will become unassigned.`:""}${subpanels?` ${subpanels} subpanel feeder link${subpanels===1?"":"s"} will be cleared.`:""}`))return;for(const p of state.points)if(p.circuitId===id)p.circuitId=null;for(const p of feederChildren(state.id,id))p.parentCircuitId=null;state.circuits=state.circuits.filter(x=>x!==c);renderAll();});
+    el("circuitRows").addEventListener("click",e=>{const btn=e.target.closest("[data-delete]");if(!btn)return;const id=Number(btn.dataset.delete),c=circuitFor(id);if(!c)return;const linked=pointsFor(id).length,subpanels=feederChildren(state.id,id).length;if(!confirm(`Delete ${c.name||"this circuit"}${c.assignment?` at breaker ${c.assignment}`:""}?${linked?` ${linked} linked point${linked===1?"":"s"} will become unassigned.`:""}${subpanels?` ${subpanels} subpanel feeder link${subpanels===1?"":"s"} will be cleared.`:""}`))return;for(const p of state.points)if(p.circuitId===id){invalidateMapping(p);p.circuitId=null;}for(const p of feederChildren(state.id,id))p.parentCircuitId=null;state.circuits=state.circuits.filter(x=>x!==c);renderAll();});
     el("addPointBtn").addEventListener("click",addPoint);
     for(const [table,prefix] of [["circuits","circuit"],["points","point"]]){
       el(`${prefix}Search`).addEventListener("input",()=>applyTableSearch(table));

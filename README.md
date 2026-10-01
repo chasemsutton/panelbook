@@ -1,10 +1,10 @@
-# Panelbook 0.5.0.8
+# Panelbook 0.5.0.9
 
-Panelbook stores electrical panel directories in a local SQLite database and opens its interface in a browser. Version 0.5.0.8 fixes mobile printing so panel directories and detail tables retain their full-width paper layout. Phones keep bottom tabs for panels, the breaker layout, circuits, and outlets / switches. Circuit and outlet / switch searches can cover the current panel, its panel tree, or the whole home, and ignore capitalization and whitespace. Registration is open by default; the super admin can require setup codes. Separate Windows portable and Proxmox server packages include account sharing with viewer or editor access.
+Panelbook stores electrical panel directories in a local SQLite database and opens its interface in a browser. Version 0.5.0.9 adds circuit detail views, dated mapping verification, and searchable protection and reset locations. Panel directories and detail tables retain their full-width paper layout when printed from a phone. Phones keep bottom tabs for panels, the breaker layout, circuits, and outlets / switches. Circuit and outlet / switch searches can cover the current panel, its panel tree, or the whole home, and ignore capitalization and whitespace. Registration is open by default; the super admin can require setup codes. Separate Windows portable and Proxmox server packages include account sharing with viewer or editor access.
 
 ## Windows portable app
 
-1. Download `Panelbook-Portable-v0.5.0.8.zip` from the [0.5.0.8 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.8) and extract it to a folder you can keep.
+1. Download `Panelbook-Portable-v0.5.0.9.zip` from the [0.5.0.9 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.9) and extract it to a folder you can keep.
 2. Double-click **`Panelbook.exe`** at the top level. It starts the local server without a console window and opens `http://127.0.0.1:8765/` in your usual browser. Pin `Panelbook.exe` to the taskbar if you want a one-click launcher. Clicking it again while the server is running opens the page in your browser.
 3. Choose **Continue locally without a login** to use Panelbook only from this machine, or create a login for accounts and sharing. When creating a login, the setup code is filled automatically when the launcher opens the page.
 
@@ -30,7 +30,7 @@ In a local-only workspace, **Close server when all tabs close** is on by default
 
 The local administrator's **Check for updates** button downloads a newer portable release, checks its SHA-256 digest, replaces app files, and restarts Panelbook. The open browser tab reloads when the new server is ready. It preserves the database in `data/`. If copying or startup fails, the helper restores and restarts the previous app, and writes details to `data/updater.log`. Hosted installations are updated by redeploying the server.
 
-**Moving from 0.4.x:** Version 0.5 changed the Windows executable layout. Extract 0.5.0.8 to a new folder and run the top-level `Panelbook.exe`. The old GUI updater is not used for this move. Export your homes as JSON in the old version and import them in 0.5.0.8 if you want to move data. Keep your old folder until you have checked the import.
+**Moving from 0.4.x:** Version 0.5 changed the Windows executable layout. Extract 0.5.0.9 to a new folder and run the top-level `Panelbook.exe`. The old GUI updater is not used for this move. Export your homes as JSON in the old version and import them in 0.5.0.9 if you want to move data. Keep your old folder until you have checked the import.
 
 **Moving from 0.5.0 to 0.5.0.1:** The 0.5.0 updater only recognizes three-part version tags, so it cannot discover `0.5.0.1`. Close Panelbook, extract the new portable ZIP, and copy your `data/` folder into the new folder. Run the new top-level `Panelbook.exe`. Future four-part version updates can use the GUI button.
 
@@ -38,9 +38,9 @@ The local administrator's **Check for updates** button downloads a newer portabl
 
 ## Importing 0.1.4 data
 
-In 0.1.4, choose **Export JSON → Everything** in the browser where your old data appears. Then open 0.5.0.8 and choose **Import JSON**. It accepts version 4 exports of an individual panel, a home, or everything. Imported homes are added to the workspace; existing homes remain available. A panel export can be added or used to replace a panel.
+In 0.1.4, choose **Export JSON → Everything** in the browser where your old data appears. Then open 0.5.0.9 and choose **Import JSON**. It accepts version 4 exports of an individual panel, a home, or everything. Imported homes are added to the workspace; existing homes remain available. A panel export can be added or used to replace a panel.
 
-If you cannot open the old app, open its original `panelbook.html` at the same path in the same browser to recover its browser storage. Opening the new HTML file with `file://` offers **Export data from this browser** when version 4 data is available for that file's origin. Export before moving or deleting the old files. The 0.5.0.8 server does not automatically read browser storage.
+If you cannot open the old app, open its original `panelbook.html` at the same path in the same browser to recover its browser storage. Opening the new HTML file with `file://` offers **Export data from this browser** when version 4 data is available for that file's origin. Export before moving or deleting the old files. The 0.5.0.9 server does not automatically read browser storage.
 
 ## Accounts and sharing
 
@@ -50,7 +50,7 @@ If the administrator forgets their password, open a Command Prompt in the `progr
 
 ## Home server
 
-For Arcane, paste `compose.yaml` into a project; it pulls the hosted image without a Dockerfile. The older `compose.pull.yaml` works the same way. For a source build, use `compose.build.yaml` and download `Panelbook-Server-v0.5.0.8.zip` from the [0.5.0.8 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.8). Follow [README-HOSTING.md](README-HOSTING.md) for Proxmox, Docker Compose, LAN HTTP or HTTPS proxy access, firewall access, backups, and updates. The database lives in the Docker named volume `panelbook-data` on the VM.
+For Arcane, paste `compose.yaml` into a project; it pulls the hosted image without a Dockerfile. The older `compose.pull.yaml` works the same way. For a source build, use `compose.build.yaml` and download `Panelbook-Server-v0.5.0.9.zip` from the [0.5.0.9 release](https://github.com/chasemsutton/panelbook/releases/tag/v0.5.0.9). Follow [README-HOSTING.md](README-HOSTING.md) for Proxmox, Docker Compose, LAN HTTP or HTTPS proxy access, firewall access, backups, and updates. The database lives in the Docker named volume `panelbook-data` on the VM.
 
 The app has account passwords, session cookies, roles, and CSRF protection. HTTPS mode adds the `Secure` cookie attribute. For access from outside your home network, use HTTPS and restrict direct access to the backend port to your NGINX machine.
 
@@ -58,8 +58,14 @@ The app has account passwords, session cookies, roles, and CSRF protection. HTTP
 
 Choose a home, add main panels, and link subpanels through an assigned 240 V feeder circuit with an amp rating. Click a breaker position to choose single, double, tandem, or quad type. Add circuits with breaker assignments, names, ratings, and wire gauges. Add outlets or switches as numbered points linked to circuits. **Print / PDF** produces a directory; **Export JSON** makes a portable backup.
 
+Click an assigned breaker or **Details** beside a circuit to open its detail view. It shows ratings, connected outlets / switches, upstream feeders, and supplied subpanels. Tandem and quad breakers open the circuit for the clicked section; the selected-position inspector also has a link for each circuit.
+
+In the detail view, record **Protection & reset locations** with GFCI, AFCI, or combined protection, the protective device, and its reset location. Outlets / switches use the circuit record by default. Expand **Record protection for this point** to document a separate protective device, or choose **Use circuit record** to remove that override. All separately recorded reset locations also appear near the top of the circuit detail view. These fields are searchable in the circuit and outlet / switch tables.
+
+Breaker and outlet / switch mappings can be **Unverified**, **Confirmed**, or **Needs rechecking**. Confirming records the current date and signed-in username (or “Local workspace” without a login). Changing a circuit's breaker assignment, voltage, or breaker designation flags its confirmed mapping and confirmed connected points for rechecking. Moving a point to another circuit or deleting its circuit also flags its confirmed mapping. The previous confirmation date and person remain visible until it is confirmed again or marked unverified. Detail edits save automatically when a field changes; viewers can read the records. Verification and protection records are included in JSON exports and imports. Older version 4 files start with unverified mappings and unknown protection.
+
 Panel layout and wire warnings are documentation aids. Check the actual panel labeling and applicable electrical rules with a qualified electrician before making installation decisions.
 
 ## Development
 
-The server uses Python's standard library, SQLite, and static HTML/CSS/JavaScript. Run `python -m unittest discover -s tests -v` for its integration tests. The Windows build runs in GitHub Actions: PyInstaller builds `PanelbookServer.exe`, Microsoft C builds the launcher with `scripts/panelbook.ico`, and `python scripts/package_release.py` creates separate portable and server ZIPs without `data/`. The Windows CI smoke tests exercise the launcher, automatic close, and updater.
+The server uses Python's standard library, SQLite, and static HTML/CSS/JavaScript. Run `python -m unittest discover -s tests -v` for its integration tests and `node --test tests/test_app.cjs` (Node.js 18 or newer) for frontend validation and mapping regression tests. The Windows build runs in GitHub Actions: PyInstaller builds `PanelbookServer.exe`, Microsoft C builds the launcher with `scripts/panelbook.ico`, and `python scripts/package_release.py` creates separate portable and server ZIPs without `data/`. The Windows CI smoke tests exercise the launcher, automatic close, and updater.

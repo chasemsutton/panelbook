@@ -1,4 +1,5 @@
 import http.client
+import copy
 import http.cookiejar
 import io
 import json
@@ -544,6 +545,90 @@ class ServerTests(unittest.TestCase):
         saved["panels"][0]["points"][0]["circuitId"] = True
         code, _ = owner.request("/api/homes/%d" % home["id"], "PUT", saved)
         self.assertEqual(code, 400)
+
+    def documented_home(self, owner):
+        _, workspace = owner.request("/api/workspace")
+        home = workspace["homes"][0]
+        panel = home["panels"][0]
+        verification = {"status": "confirmed", "verifiedAt": "2026-10-01T12:30:00.000Z", "verifiedBy": "owner"}
+        protection = {"type": "dual", "device": "Kitchen breaker", "resetLocation": "Main panel, breaker 5"}
+        panel["circuits"] = [{"id": 1, "name": "Kitchen", "assignment": "5", "voltage": 120, "amps": 20,
+                              "gauge": "12", "labelMode": "circuits", "verification": dict(verification), "protection": protection}]
+        panel["nextCircuitId"] = 2
+        panel["points"] = [{"id": 1, "circuitId": 1, "name": "Counter outlet", "location": "Left of sink",
+                            "verification": dict(verification), "protection": None},
+                           {"id": 2, "circuitId": 1, "name": "Bathroom outlet", "location": "Bathroom",
+                            "verification": {"status": "needs-recheck", "verifiedAt": verification["verifiedAt"], "verifiedBy": "owner"},
+                            "protection": {"type": "gfci", "device": "Bathroom GFCI", "resetLocation": "Beside the mirror"}}]
+        panel["nextPointId"] = 3
+        return home
+
+    def test_circuit_documentation_save_reload_import_and_viewer(self):
+        owner = self.setup_owner()
+        home = self.documented_home(owner)
+        code, _ = owner.request(f"/api/homes/{home['id']}", "PUT", home)
+        self.assertEqual(code, 200)
+        _, workspace = owner.request("/api/workspace")
+        saved = workspace["homes"][0]
+        self.assertEqual(saved["panels"], home["panels"])
+        code, imported = owner.request("/api/import", "POST", {"version": 4, "scope": "home", "home": saved})
+        self.assertEqual(code, 201)
+        # Imported panels receive fresh IDs; circuit and point documentation stays intact.
+        imported_panel = imported["homes"][0]["panels"][0]
+        self.assertEqual(imported_panel["circuits"], home["panels"][0]["circuits"])
+        self.assertEqual(imported_panel["points"], home["panels"][0]["points"])
+        viewer_id, viewer = self.add_user(owner, "viewer")
+        code, _ = owner.request(f"/api/homes/{home['id']}/members/{viewer_id}", "PUT", {"role": "viewer"})
+        self.assertEqual(code, 200)
+        _, workspace = viewer.request("/api/workspace")
+        shared = next(item for item in workspace["homes"] if item["id"] == home["id"])
+        self.assertEqual(shared["panels"], home["panels"])
+        shared["panels"][0]["circuits"][0]["protection"]["resetLocation"] = "Changed by viewer"
+        code, _ = viewer.request(f"/api/homes/{home['id']}", "PUT", shared)
+        self.assertEqual(code, 403)
+
+    def test_invalid_circuit_documentation_is_rejected_without_saving(self):
+        owner = self.setup_owner()
+        home = self.documented_home(owner)
+        invalid_records = [
+            ("circuits", "verification", None),
+            ("circuits", "verification", {"status": "confirmed"}),
+            ("circuits", "verification", {"status": "unknown"}),
+            ("points", "verification", {"status": "confirmed", "verifiedAt": "2026-02-30T12:30:00.000Z", "verifiedBy": "owner"}),
+            ("points", "verification", {"status": "needs-recheck", "verifiedAt": "", "verifiedBy": "owner"}),
+            ("circuits", "protection", None),
+            ("circuits", "protection", {"type": "invalid"}),
+            ("points", "protection", {"type": "gfci", "device": "x" * 161}),
+            ("points", "protection", {"type": "gfci", "resetLocation": "x" * 501}),
+            ("points", "protection", []),
+        ]
+        for table, field, value in invalid_records:
+            with self.subTest(table=table, field=field, value=value):
+                invalid = copy.deepcopy(home)
+                invalid["panels"][0][table][0][field] = value
+                code, _ = owner.request(f"/api/homes/{home['id']}", "PUT", invalid)
+                self.assertEqual(code, 400)
+        for table, field, value in [("points", "circuitId", None), ("circuits", "assignment", "")]:
+            invalid = copy.deepcopy(home)
+            invalid["panels"][0][table][0][field] = value
+            code, _ = owner.request(f"/api/homes/{home['id']}", "PUT", invalid)
+            self.assertEqual(code, 400)
+        _, workspace = owner.request("/api/workspace")
+        self.assertEqual(workspace["homes"][0]["panels"][0]["circuits"], [])
+
+    def test_legacy_records_default_to_unverified_and_unknown_protection(self):
+        owner = self.setup_owner()
+        home = self.documented_home(owner)
+        for record in home["panels"][0]["circuits"] + home["panels"][0]["points"]:
+            record.pop("verification")
+            record.pop("protection")
+        code, imported = owner.request("/api/import", "POST", {"version": 4, "scope": "home", "home": home})
+        self.assertEqual(code, 201)
+        panel = imported["homes"][0]["panels"][0]
+        for record in panel["circuits"] + panel["points"]:
+            self.assertEqual(record["verification"], {"status": "unverified", "verifiedAt": "", "verifiedBy": ""})
+        self.assertEqual(panel["circuits"][0]["protection"], {"type": "unknown", "device": "", "resetLocation": ""})
+        self.assertIsNone(panel["points"][0]["protection"])
 
     def test_admin_resets_passwords_and_deletes_users(self):
         owner = self.setup_owner()

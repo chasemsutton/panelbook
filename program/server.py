@@ -17,6 +17,7 @@ import time
 import webbrowser
 import urllib.request
 from contextlib import contextmanager
+from datetime import datetime
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,7 +25,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-VERSION = "0.5.0.8"
+VERSION = "0.5.0.9"
 ROOT = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 PROGRAM_LAYOUT = ROOT.name.lower() == "program"
 APP_ROOT = ROOT.parent if PROGRAM_LAYOUT else ROOT
@@ -97,6 +98,36 @@ def initial_panel(panel_id):
             "nextCircuitId": 1, "points": [], "nextPointId": 1}
 
 
+def validate_verification(value, assigned):
+    if not isinstance(value, dict):
+        raise ApiError(400, "Invalid mapping verification.")
+    status = value.get("status", "unverified")
+    verified_at, verified_by = value.get("verifiedAt", ""), value.get("verifiedBy", "")
+    if status not in ("unverified", "confirmed", "needs-recheck") or not isinstance(verified_at, str) or not isinstance(verified_by, str) or len(verified_by) > 120:
+        raise ApiError(400, "Invalid mapping verification.")
+    if bool(verified_at) != bool(verified_by.strip()) or status == "unverified" and (verified_at or verified_by):
+        raise ApiError(400, "Invalid verification date or person.")
+    if verified_at:
+        try:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z", verified_at):
+                raise ValueError()
+            datetime.fromisoformat(verified_at.replace("Z", "+00:00"))
+        except ValueError:
+            raise ApiError(400, "Invalid verification date.")
+    if status == "confirmed" and (not assigned or not verified_at):
+        raise ApiError(400, "Assign the mapping and record its date and person before confirming it.")
+    return {"status": status, "verifiedAt": verified_at, "verifiedBy": verified_by.strip()}
+
+
+def validate_protection(value):
+    if not isinstance(value, dict) or value.get("type", "unknown") not in ("unknown", "none", "gfci", "afci", "dual"):
+        raise ApiError(400, "Invalid protection type.")
+    device, location = value.get("device", ""), value.get("resetLocation", "")
+    if not isinstance(device, str) or len(device) > 160 or not isinstance(location, str) or len(location) > 500:
+        raise ApiError(400, "Invalid protective device or reset location.")
+    return {"type": value.get("type", "unknown"), "device": device, "resetLocation": location}
+
+
 def validate_home(home):
     """Return a copy of home that holds only known, validated fields."""
     if not isinstance(home, dict) or not isinstance(home.get("name"), str) or not 1 <= len(home["name"].strip()) <= 80:
@@ -147,7 +178,9 @@ def validate_home(home):
             if circuit.get("gauge") not in ("", "14", "12", "10", "8", "6", "4", "2", "1/0"):
                 raise ApiError(400, "Invalid wire gauge.")
             clean_circuits.append({"id": circuit["id"], "name": circuit["name"], "assignment": assignment, "voltage": voltage,
-                                   "amps": amps, "gauge": circuit["gauge"], "labelMode": circuit["labelMode"]})
+                                   "amps": amps, "gauge": circuit["gauge"], "labelMode": circuit["labelMode"],
+                                   "verification": validate_verification(circuit.get("verification", {}), bool(assignment)),
+                                   "protection": validate_protection(circuit.get("protection", {}))})
         point_ids, clean_points = set(), []
         for point in points:
             if not isinstance(point, dict) or not valid_id(point.get("id")) or point["id"] >= next_point or point["id"] in point_ids:
@@ -158,7 +191,9 @@ def validate_home(home):
                 raise ApiError(400, "Point references a missing circuit.")
             if not isinstance(point.get("name"), str) or len(point["name"]) > 160 or not isinstance(point.get("location"), str) or len(point["location"]) > 500:
                 raise ApiError(400, "Invalid point details.")
-            clean_points.append({"id": point["id"], "circuitId": circuit_id, "name": point["name"], "location": point["location"]})
+            clean_points.append({"id": point["id"], "circuitId": circuit_id, "name": point["name"], "location": point["location"],
+                                 "verification": validate_verification(point.get("verification", {}), circuit_id is not None),
+                                 "protection": validate_protection(point["protection"]) if point.get("protection") is not None else None})
         circuit_ids_by_panel[panel["id"]] = circuit_ids
         clean_panels.append({"id": panel["id"], "name": panel["name"], "kind": panel["kind"],
                              "parentPanelId": panel.get("parentPanelId"), "parentCircuitId": panel.get("parentCircuitId"),
