@@ -22,13 +22,14 @@ function app() {
   assert.ok(source.includes("  init();"));
   vm.runInContext(source.replace("  init();", `
     globalThis.app = {assertPanel, assertVerification, assertProtection, protectionOf, setVerification,
-      updateCircuit, updatePoint, convert, renderCircuitDetail, searchFields,
+      updateCircuit, updatePoint, convert, renderCircuitDetail, updateDetail, searchFields,
+      resolvedProtection, deletePointRecord, deleteCircuitRecord,
       configure(panel,otherPanels=[],role="owner") {
         state=panel;workbook.homes[0].panels=[panel,...otherPanels];workbook.homes[0].role=role;
         workbook.selectedPanelId=panel.id;currentUser={username:"tester",isLocal:false};detailCircuitId=panel.circuits[0]?.id;
       },
       stubRendering() {
-        save=renderPanel=renderTotals=renderNavigation=renderPointRows=renderRows=applyTableSearch=renderAll=notify=()=>{};
+        save=renderPanel=renderTotals=renderNavigation=renderPointRows=renderRows=applyTableSearch=applyRole=renderAll=notify=()=>{};
       }
     };`), context);
   return { ...context.app, document };
@@ -55,9 +56,11 @@ test("legacy imports get defaults and documentation survives frontend normalizat
   assert.deepEqual(plain(clean.circuits[0].verification), { status: "unverified", verifiedAt: "", verifiedBy: "" });
   assert.equal(clean.points[0].protection, null);
   clean.circuits[0].verification = confirmed();
-  clean.circuits[0].protection = { type: "dual", device: "Kitchen breaker", resetLocation: "Main panel" };
+  clean.circuits[0].protection = plain(a.assertProtection({ type: "dual", device: "Kitchen breaker", resetLocation: "Main panel" }));
   clean.points[0].verification = confirmed();
-  clean.points[0].protection = { type: "gfci", device: "Bathroom GFCI", resetLocation: "Left of mirror" };
+  clean.points[0].protection = plain(a.assertProtection({ type: "gfci", device: "Bathroom GFCI", resetLocation: "Left of mirror" }));
+  assert.equal(clean.circuits[0].protection.deviceKind, "custom");
+  assert.equal(clean.circuits[0].protection.devicePointId, null);
   assert.deepEqual(plain(a.assertPanel(plain(clean))), plain(clean));
 });
 
@@ -128,4 +131,121 @@ test("details expose reset locations, escape user text, and remain read-only for
   assert.match(a.searchFields("points", p.points[0], p).protection, /Behind toaster/);
   p.points[0].protection = { type: "gfci", device: "Separate GFCI", resetLocation: "Hall bathroom" };
   assert.match(a.searchFields("circuits", p.circuits[0], p).protection, /Hall bathroom/);
+});
+
+const protection = (deviceKind, devicePointId = null, resetLocation = "") => ({
+  type: "gfci", deviceKind, devicePointId, device: "", resetLocation,
+});
+
+test("protective device choices include only this circuit's endpoints and support override and custom records", () => {
+  const a = app(), p = panel(), c = p.circuits[0];
+  p.points.push({ id: 2, circuitId: 2, name: "Other circuit endpoint", location: "Hall" });
+  p.nextPointId = 3;
+  a.configure(p); a.stubRendering();
+  const change = (field, value, pointId) => a.updateDetail({ value,
+    dataset: { protectionField: field, ...(pointId ? { protectionPoint: String(pointId) } : {}) },
+    hasAttribute: () => false });
+  change("deviceChoice", "breaker");
+  assert.equal(c.protection.deviceKind, "breaker");
+  assert.match(a.resolvedProtection(c.protection, c, p).resetLocation, /Main panel.*5/);
+  change("deviceChoice", "point:1");
+  assert.equal(c.protection.devicePointId, 1);
+  change("deviceChoice", "point:2");
+  assert.equal(c.protection.devicePointId, 1);
+  a.renderCircuitDetail();
+  const html = a.document.getElementById("circuitDetailBody").innerHTML;
+  assert.match(html, /Breaker itself/);
+  assert.match(html, /Custom \/ endpoint group/);
+  assert.match(html, /value="point:1" selected/);
+  assert.doesNotMatch(html, /value="point:2"/);
+  change("deviceChoice", "breaker", 1);
+  assert.equal(p.points[0].protection.deviceKind, "breaker");
+  change("deviceChoice", "custom", 1);
+  change("device", "Kitchen outlet group", 1);
+  change("resetLocation", "Pantry", 1);
+  assert.equal(a.protectionOf(c, p.points[0]).device, "Kitchen outlet group");
+  change("type", "", 1);
+  assert.equal(p.points[0].protection, null);
+  assert.equal(a.protectionOf(c, p.points[0]).deviceKind, "point");
+});
+
+test("selected endpoints follow edits, are searchable across panels, and allow an explicit reset location", () => {
+  const a = app(), p = panel(), c = p.circuits[0];
+  c.protection = protection("point", 1);
+  assert.deepEqual(plain(a.assertPanel(p).circuits[0].protection), c.protection);
+  a.configure(panel()); // Searches must use the panel being searched, not the selected panel.
+  p.points[0].name = "New GFCI name";
+  p.points[0].location = "New reset location";
+  const fields = a.searchFields("circuits", c, p);
+  assert.match(fields.protection, /New GFCI name.*New reset location/);
+  c.protection.resetLocation = "Under the cover";
+  assert.equal(a.resolvedProtection(c.protection, c, p).resetLocation, "Under the cover");
+  c.protection = protection("breaker");
+  c.assignment = "7"; p.name = "Garage panel";
+  assert.match(a.resolvedProtection(c.protection, c, p).resetLocation, /Garage panel.*7/);
+});
+
+test("moved and deleted protective endpoints preserve custom records and flag mappings for rechecking", () => {
+  for (const remove of [false, true]) {
+    const a = app(), p = panel(), c = p.circuits[0];
+    c.protection = protection("point", 1); c.verification = confirmed();
+    p.points.push({ id: 2, circuitId: 1, name: "Downstream", location: "Kitchen",
+      verification: confirmed(), protection: protection("point", 1) });
+    p.nextPointId = 3;
+    p.points[0].protection = protection("breaker");
+    a.configure(p); a.stubRendering();
+    if (remove) a.deletePointRecord(p.points[0]);
+    else a.updatePoint(target(1, "circuitId", "2", true), true);
+    for (const record of [c, p.points.find(point => point.id === 2)]) {
+      assert.equal(record.protection.deviceKind, "custom");
+      assert.equal(record.protection.devicePointId, null);
+      assert.match(record.protection.device, /Counter outlet/);
+      assert.equal(record.protection.resetLocation, "Left of sink");
+      assert.equal(record.verification.status, "needs-recheck");
+    }
+    if (!remove) {
+      assert.equal(p.points[0].protection.deviceKind, "custom");
+      assert.match(p.points[0].protection.resetLocation, /Main panel.*5/);
+    }
+    assert.doesNotThrow(() => a.assertPanel(p));
+  }
+});
+
+test("self-protection follows a reassigned endpoint and circuit deletion preserves all override locations", () => {
+  const a = app(), p = panel(), c = p.circuits[0];
+  p.points[0].protection = protection("point", 1);
+  a.configure(p); a.stubRendering();
+  a.updatePoint(target(1, "circuitId", "2", true), true);
+  assert.equal(p.points[0].protection.deviceKind, "point");
+  assert.doesNotThrow(() => a.assertPanel(p));
+  a.updatePoint(target(1, "circuitId", "1", true), true);
+  p.points[0].verification = confirmed();
+  p.points.push({ id: 2, circuitId: 1, name: "Downstream", location: "Other wall",
+    protection: protection("point", 1), verification: confirmed() });
+  p.nextPointId = 3;
+  a.deleteCircuitRecord(c);
+  for (const point of p.points) {
+    assert.equal(point.circuitId, null);
+    assert.equal(point.protection.deviceKind, "custom");
+    assert.equal(point.protection.resetLocation, "Left of sink");
+    assert.equal(point.verification.status, "needs-recheck");
+  }
+  assert.doesNotThrow(() => a.assertPanel(p));
+});
+
+test("import rejects missing, off-circuit, and malformed protective device references", () => {
+  const a = app();
+  for (const record of [{ deviceKind: "invalid" }, { deviceKind: ["point"] },
+    { deviceKind: "point", devicePointId: true }, { deviceKind: "point", devicePointId: 0 },
+    { deviceKind: "point", devicePointId: 1.1 }, { deviceKind: "breaker", devicePointId: 1 }]) {
+    assert.throws(() => a.assertProtection(record));
+  }
+  const p = panel();
+  p.circuits[1].protection = protection("point", 1);
+  assert.throws(() => a.assertPanel(p), /same circuit/);
+  p.circuits[1].protection = protection("point", 999);
+  assert.throws(() => a.assertPanel(p), /same circuit/);
+  delete p.circuits[1].protection;
+  p.points[0].circuitId = null; p.points[0].protection = protection("breaker");
+  assert.throws(() => a.assertPanel(p), /same circuit/);
 });

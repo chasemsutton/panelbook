@@ -551,7 +551,8 @@ class ServerTests(unittest.TestCase):
         home = workspace["homes"][0]
         panel = home["panels"][0]
         verification = {"status": "confirmed", "verifiedAt": "2026-10-01T12:30:00.000Z", "verifiedBy": "owner"}
-        protection = {"type": "dual", "device": "Kitchen breaker", "resetLocation": "Main panel, breaker 5"}
+        protection = {"type": "dual", "deviceKind": "custom", "devicePointId": None,
+                      "device": "Kitchen breaker", "resetLocation": "Main panel, breaker 5"}
         panel["circuits"] = [{"id": 1, "name": "Kitchen", "assignment": "5", "voltage": 120, "amps": 20,
                               "gauge": "12", "labelMode": "circuits", "verification": dict(verification), "protection": protection}]
         panel["nextCircuitId"] = 2
@@ -559,7 +560,8 @@ class ServerTests(unittest.TestCase):
                             "verification": dict(verification), "protection": None},
                            {"id": 2, "circuitId": 1, "name": "Bathroom outlet", "location": "Bathroom",
                             "verification": {"status": "needs-recheck", "verifiedAt": verification["verifiedAt"], "verifiedBy": "owner"},
-                            "protection": {"type": "gfci", "device": "Bathroom GFCI", "resetLocation": "Beside the mirror"}}]
+                            "protection": {"type": "gfci", "deviceKind": "custom", "devicePointId": None,
+                                           "device": "Bathroom GFCI", "resetLocation": "Beside the mirror"}}]
         panel["nextPointId"] = 3
         return home
 
@@ -627,8 +629,78 @@ class ServerTests(unittest.TestCase):
         panel = imported["homes"][0]["panels"][0]
         for record in panel["circuits"] + panel["points"]:
             self.assertEqual(record["verification"], {"status": "unverified", "verifiedAt": "", "verifiedBy": ""})
-        self.assertEqual(panel["circuits"][0]["protection"], {"type": "unknown", "device": "", "resetLocation": ""})
+        self.assertEqual(panel["circuits"][0]["protection"], {"type": "unknown", "deviceKind": "custom",
+                                                           "devicePointId": None, "device": "", "resetLocation": ""})
         self.assertIsNone(panel["points"][0]["protection"])
+
+    def test_protective_device_selections_survive_save_reload_and_import(self):
+        owner = self.setup_owner()
+        home = self.documented_home(owner)
+        panel = home["panels"][0]
+        panel["circuits"][0]["protection"].update(deviceKind="point", devicePointId=2, device="", resetLocation="")
+        panel["points"][0]["protection"] = {"type": "afci", "deviceKind": "breaker", "devicePointId": None,
+                                            "device": "", "resetLocation": ""}
+        panel["points"][1]["protection"].update(deviceKind="point", devicePointId=2)
+        code, _ = owner.request(f"/api/homes/{home['id']}", "PUT", home)
+        self.assertEqual(code, 200)
+        _, workspace = owner.request("/api/workspace")
+        self.assertEqual(workspace["homes"][0]["panels"], home["panels"])
+        code, imported = owner.request("/api/import", "POST", {"version": 4, "scope": "home", "home": home})
+        self.assertEqual(code, 201)
+        imported_panel = imported["homes"][0]["panels"][0]
+        self.assertNotEqual(imported_panel["id"], panel["id"])
+        self.assertEqual(imported_panel["circuits"], panel["circuits"])
+        self.assertEqual(imported_panel["points"], panel["points"])
+
+    def test_invalid_protective_device_references_are_rejected_atomically(self):
+        owner = self.setup_owner()
+        home = self.documented_home(owner)
+        panel = home["panels"][0]
+        panel["circuits"].append({**copy.deepcopy(panel["circuits"][0]), "id": 2, "assignment": "6"})
+        panel["nextCircuitId"] = 3
+        panel["points"][1]["circuitId"] = 2
+        code, _ = owner.request(f"/api/homes/{home['id']}", "PUT", home)
+        self.assertEqual(code, 200)
+        records = [{"deviceKind": "bad"}, {"deviceKind": ["point"]},
+                   {"deviceKind": "point", "devicePointId": True},
+                   {"deviceKind": "point", "devicePointId": 0},
+                   {"deviceKind": "point", "devicePointId": 1.5},
+                   {"deviceKind": "breaker", "devicePointId": 1},
+                   {"deviceKind": "point", "devicePointId": 999},
+                   {"deviceKind": "point", "devicePointId": 2}]
+        for table in ("circuits", "points"):
+            for record in records:
+                with self.subTest(table=table, record=record):
+                    invalid = copy.deepcopy(home)
+                    invalid["panels"][0][table][0]["protection"] = {"type": "gfci", **record}
+                    code, _ = owner.request(f"/api/homes/{home['id']}", "PUT", invalid)
+                    self.assertEqual(code, 400)
+                    code, _ = owner.request("/api/import", "POST", {"version": 4, "scope": "home", "home": invalid})
+                    self.assertEqual(code, 400)
+        invalid = copy.deepcopy(home)
+        invalid["panels"][0]["points"][0].update(circuitId=None, verification={"status": "unverified"},
+            protection={"type": "gfci", "deviceKind": "breaker"})
+        code, _ = owner.request(f"/api/homes/{home['id']}", "PUT", invalid)
+        self.assertEqual(code, 400)
+        _, workspace = owner.request("/api/workspace")
+        self.assertEqual(len(workspace["homes"]), 1)
+        self.assertEqual(workspace["homes"][0]["panels"], home["panels"])
+
+    def test_legacy_protective_device_text_is_preserved_as_custom(self):
+        owner = self.setup_owner()
+        home = self.documented_home(owner)
+        for record in home["panels"][0]["circuits"] + home["panels"][0]["points"]:
+            if record["protection"]:
+                record["protection"].pop("deviceKind")
+                record["protection"].pop("devicePointId")
+        code, imported = owner.request("/api/import", "POST", {"version": 4, "scope": "home", "home": home})
+        self.assertEqual(code, 201)
+        panel = imported["homes"][0]["panels"][0]
+        self.assertEqual(panel["circuits"][0]["protection"]["device"], "Kitchen breaker")
+        self.assertEqual(panel["points"][1]["protection"]["resetLocation"], "Beside the mirror")
+        for record in [panel["circuits"][0], panel["points"][1]]:
+            self.assertEqual(record["protection"]["deviceKind"], "custom")
+            self.assertIsNone(record["protection"]["devicePointId"])
 
     def test_admin_resets_passwords_and_deletes_users(self):
         owner = self.setup_owner()

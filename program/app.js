@@ -10,7 +10,7 @@
   const VERIFICATION_LABELS = {unverified:"Unverified",confirmed:"Confirmed","needs-recheck":"Needs rechecking"};
   const PROTECTION_LABELS = {unknown:"Unknown / not recorded",none:"No GFCI / AFCI",gfci:"GFCI",afci:"AFCI",dual:"GFCI + AFCI"};
   const emptyVerification = () => ({status:"unverified",verifiedAt:"",verifiedBy:""});
-  const emptyProtection = () => ({type:"unknown",device:"",resetLocation:""});
+  const emptyProtection = () => ({type:"unknown",deviceKind:"custom",devicePointId:null,device:"",resetLocation:""});
   const el = id => document.getElementById(id);
   const escapeHTML = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
   const makePanel = (id,name,kind="main",parentPanelId=null) => ({id,name,kind,parentPanelId,parentCircuitId:null,spaces:24,types:{},circuits:[],nextCircuitId:1,points:[],nextPointId:1});
@@ -149,7 +149,55 @@
   function circuitFor(id) { return state.circuits.find(c => c.id === id); }
   function verificationOf(record) { return record.verification || emptyVerification(); }
   function protectionOf(circuit,point=null) { return point?.protection || circuit?.protection || emptyProtection(); }
-  function protectionSearch(record) { return `${PROTECTION_LABELS[record.type]} ${record.device} ${record.resetLocation}`; }
+  function resolvedProtection(record,circuit,panel=state) {
+    let device=record.device || "",location="";
+    if(record.deviceKind==="breaker"){
+      device=`${panel.name} · breaker ${circuit?.assignment || "unassigned"}`;
+      location=device;
+    }else if(record.deviceKind==="point"){
+      const point=panel.points.find(p=>p.id===record.devicePointId && p.circuitId===circuit?.id);
+      device=point?`#${point.id} · ${point.name || "Unnamed point"}`:`Endpoint #${record.devicePointId} no longer on this circuit`;
+      location=point?.location || "";
+    }
+    return {device,resetLocation:record.resetLocation || location};
+  }
+  function protectionSearch(record,circuit,panel=state) {
+    const resolved=resolvedProtection(record,circuit,panel);
+    return `${PROTECTION_LABELS[record.type]} ${resolved.device} ${resolved.resetLocation}`;
+  }
+  function detachProtectiveDevice(record,circuit) {
+    const protection=record.protection;
+    if(!protection || !["breaker","point"].includes(protection.deviceKind))return;
+    const resolved=resolvedProtection(protection,circuit);
+    record.protection={...protection,deviceKind:"custom",devicePointId:null,
+      device:resolved.device.slice(0,160),resetLocation:resolved.resetLocation.slice(0,500)};
+    invalidateMapping(record);
+  }
+  function preservePointProtection(point,nextCircuitId=null) {
+    const circuit=circuitFor(point.circuitId);
+    if(!circuit)return;
+    for(const record of [circuit,...pointsFor(circuit.id)]){
+      if(record!==point && record.protection?.deviceKind==="point" && record.protection.devicePointId===point.id)
+        detachProtectiveDevice(record,circuit);
+    }
+    // A point's own protective device can follow it to another circuit.
+    if(!(nextCircuitId!==null && point.protection?.deviceKind==="point" && point.protection.devicePointId===point.id))
+      detachProtectiveDevice(point,circuit);
+  }
+  function deletePointRecord(point) {
+    preservePointProtection(point);
+    state.points=state.points.filter(p=>p!==point);
+  }
+  function deleteCircuitRecord(circuit) {
+    const points=pointsFor(circuit.id);
+    for(const point of points)detachProtectiveDevice(point,circuit);
+    for(const point of points){
+      invalidateMapping(point);
+      point.circuitId=null;
+    }
+    for(const panel of feederChildren(state.id,circuit.id))panel.parentCircuitId=null;
+    state.circuits=state.circuits.filter(c=>c!==circuit);
+  }
   function verificationBadge(record) {
     const status=verificationOf(record).status;
     return `<span class="verification-badge ${status}">${VERIFICATION_LABELS[status]}</span>`;
@@ -171,12 +219,24 @@
   function verificationSelect(record,id,attributes,assigned=true) {
     return `<select id="${id}" ${attributes}>${Object.entries(VERIFICATION_LABELS).map(([value,label])=>`<option value="${value}"${verificationOf(record).status===value?" selected":""}${value==="confirmed"&&!assigned?" disabled":""}>${label}</option>`).join("")}</select>`;
   }
-  function protectionFields(protection,prefix,attributes,inherit=false) {
+  function protectionFields(protection,circuit,prefix,attributes,inherit=false) {
     const values=protection || emptyProtection();
-    return `<div class="detail-fields"><label class="dialog-field">Protection type<select id="${prefix}Type" ${attributes} data-protection-field="type">${inherit?`<option value=""${!protection?" selected":""}>Use circuit record</option>`:""}${Object.entries(PROTECTION_LABELS).map(([value,label])=>`<option value="${value}"${protection&&values.type===value?" selected":""}>${label}</option>`).join("")}</select></label><label class="dialog-field">Protective device<input id="${prefix}Device" ${attributes} data-protection-field="device" maxlength="160" placeholder="e.g. Hall bathroom GFCI outlet" value="${escapeHTML(values.device)}"${inherit&&!protection?" disabled":""}></label><label class="dialog-field detail-wide">Reset location<textarea id="${prefix}Reset" ${attributes} data-protection-field="resetLocation" maxlength="500" rows="2" placeholder="e.g. Hall bathroom, left of the sink"${inherit&&!protection?" disabled":""}>${escapeHTML(values.resetLocation)}</textarea></label></div>`;
+    const choice=values.deviceKind==="point"?`point:${values.devicePointId}`:values.deviceKind || "custom";
+    const disabled=inherit&&!protection?" disabled":"";
+    const automatic=resolvedProtection({...values,resetLocation:""},circuit).resetLocation;
+    return `<div class="detail-fields">
+      <label class="dialog-field">Protection type<select id="${prefix}Type" ${attributes} data-protection-field="type">${inherit?`<option value=""${!protection?" selected":""}>Use circuit record</option>`:""}${Object.entries(PROTECTION_LABELS).map(([value,label])=>`<option value="${value}"${protection&&values.type===value?" selected":""}>${label}</option>`).join("")}</select></label>
+      <label class="dialog-field">Protective device<select id="${prefix}Device" ${attributes} data-protection-field="deviceChoice"${disabled}>
+        <option value="custom"${choice==="custom"?" selected":""}>Custom / endpoint group</option>
+        <option value="breaker"${choice==="breaker"?" selected":""}>Breaker itself (${escapeHTML(circuit.assignment || "unassigned")})</option>
+        ${pointsFor(circuit.id).map(p=>`<option value="point:${p.id}"${choice===`point:${p.id}`?" selected":""}>#${p.id} · ${escapeHTML(p.name || "Unnamed point")}${p.location?` · ${escapeHTML(p.location)}`:""}</option>`).join("")}</select></label>
+      ${choice==="custom"?`<label class="dialog-field detail-wide">Custom protective device / endpoint group<input id="${prefix}CustomDevice" ${attributes} data-protection-field="device" maxlength="160" placeholder="e.g. Hall bathroom outlet group" value="${escapeHTML(values.device)}"${disabled}></label>`:""}
+      <label class="dialog-field detail-wide">Reset location${choice!=="custom"?" (optional override)":""}<textarea id="${prefix}Reset" ${attributes} data-protection-field="resetLocation" maxlength="500" rows="2" placeholder="${escapeHTML(automatic || "e.g. Hall bathroom, left of the sink")}"${disabled}>${escapeHTML(values.resetLocation)}</textarea></label>
+      ${choice!=="custom"?`<p class="detail-hint detail-wide">Leave the reset location blank to use ${choice==="breaker"?"the panel and breaker position":"the selected endpoint’s location"}. Selected devices follow name and location changes. Moved or deleted endpoints are preserved as custom records.</p>`:""}</div>`;
   }
-  function protectionSummary(protection) {
-    return `<span class="protection-type">${PROTECTION_LABELS[protection.type]}</span><dl class="reset-record"><div><dt>Protective device</dt><dd>${escapeHTML(protection.device||"Not recorded")}</dd></div><div><dt>Reset location</dt><dd>${escapeHTML(protection.resetLocation||"Not recorded")}</dd></div></dl>`;
+  function protectionSummary(protection,circuit) {
+    const resolved=resolvedProtection(protection,circuit);
+    return `<span class="protection-type">${PROTECTION_LABELS[protection.type]}</span><dl class="reset-record"><div><dt>Protective device</dt><dd>${escapeHTML(resolved.device||"Not recorded")}${protection.deviceKind==="custom"&&protection.device?` <small>(custom)</small>`:""}</dd></div><div><dt>Reset location</dt><dd>${escapeHTML(resolved.resetLocation||"Not recorded")}</dd></div></dl>`;
   }
   function openCircuitDetail(circuitId,panelId=state.id) {
     const panel=panelById(panelId);
@@ -208,10 +268,10 @@
     const children=feederChildren(state.id,c.id);
     el("circuitDetailBody").innerHTML=`
       <dl class="circuit-facts"><div><dt>Voltage</dt><dd>${c.voltage} V</dd></div><div><dt>Breaker rating</dt><dd>${c.amps==null?"Not recorded":`${c.amps} A`}</dd></div><div><dt>Wire gauge</dt><dd>${c.gauge?`${escapeHTML(c.gauge)} AWG`:"Not recorded"}</dd></div><div><dt>Points confirmed</dt><dd>${confirmed} / ${points.length}</dd></div></dl>
-      <section class="detail-section protection-section" aria-labelledby="detailProtectionTitle"><h3 id="detailProtectionTitle">Protection &amp; reset locations</h3><p class="detail-hint">Points use the circuit record unless their protection is recorded separately.</p><div class="reset-overview"><div><h4>Circuit record</h4>${protectionSummary(protection)}</div>${overrides.map(p=>`<div><h4>#${p.id} · ${escapeHTML(p.name||"Unnamed point")}</h4>${protectionSummary(p.protection)}</div>`).join("")}</div><details class="circuit-protection-editor"><summary>Edit circuit protection record</summary>${protectionFields(protection,"circuitProtection","data-circuit-protection")}</details></section>
+      <section class="detail-section protection-section" aria-labelledby="detailProtectionTitle"><h3 id="detailProtectionTitle">Protection &amp; reset locations</h3><p class="detail-hint">Points use the circuit record unless their protection is recorded separately.</p><div class="reset-overview"><div><h4>Circuit record</h4>${protectionSummary(protection,c)}</div>${overrides.map(p=>`<div><h4>#${p.id} · ${escapeHTML(p.name||"Unnamed point")}</h4>${protectionSummary(p.protection,c)}</div>`).join("")}</div><details class="circuit-protection-editor"><summary>Edit circuit protection record</summary>${protectionFields(protection,c,"circuitProtection","data-circuit-protection")}</details></section>
       <section class="detail-section" aria-labelledby="detailMappingTitle"><h3 id="detailMappingTitle">Breaker mapping ${verificationBadge(c)}</h3><label class="dialog-field">Verification status${verificationSelect(c,"circuitVerification","data-circuit-verification",!!c.assignment)}</label><p class="verification-note">${escapeHTML(verificationNote(c))}</p>${!c.assignment?`<p class="detail-hint">Assign a breaker in the circuits table before confirming this mapping.</p>`:""}</section>
       ${ancestors.length||children.length?`<section class="detail-section"><h3>Panel connections</h3>${ancestors.length?`<h4>Upstream feeders</h4><ol class="feeder-path">${ancestors.join("")}</ol>`:""}${children.length?`<h4>Supplied subpanels</h4><div class="detail-panel-links">${children.map(p=>`<button type="button" class="button" data-detail-open-panel="${p.id}">${escapeHTML(p.name)} →</button>`).join("")}</div>`:""}</section>`:""}
-      <section class="detail-section" aria-labelledby="detailPointsTitle"><h3 id="detailPointsTitle">Connected outlets / switches <span class="count">${points.length}</span></h3><p class="detail-hint">Confirmation records the date and person. Changed breaker or circuit assignments flag confirmed mappings for rechecking.</p><div class="detail-points">${points.map(p=>`<article class="detail-point"><div class="detail-point-heading"><h4>#${p.id} · ${escapeHTML(p.name||"Unnamed point")}</h4>${verificationBadge(p)}</div><p class="point-description">${escapeHTML(p.location||"Location not recorded")}</p><div class="point-reset">${protectionSummary(protectionOf(c,p))}<small>${p.protection?"Recorded for this point":"Uses circuit record"}</small></div><label class="dialog-field">Mapping verification${verificationSelect(p,`pointVerification${p.id}`,`data-point-verification="${p.id}"`)}</label><p class="verification-note">${escapeHTML(verificationNote(p))}</p><details class="point-protection-editor"><summary>Record protection for this point</summary>${protectionFields(p.protection,`pointProtection${p.id}`,`data-protection-point="${p.id}"`,true)}</details></article>`).join("")||`<p class="detail-empty">No points are linked yet. Assign outlets / switches to this circuit to document what it supplies.</p>`}</div></section>`;
+      <section class="detail-section" aria-labelledby="detailPointsTitle"><h3 id="detailPointsTitle">Connected outlets / switches <span class="count">${points.length}</span></h3><p class="detail-hint">Confirmation records the date and person. Changed breaker or circuit assignments flag confirmed mappings for rechecking.</p><div class="detail-points">${points.map(p=>`<article class="detail-point"><div class="detail-point-heading"><h4>#${p.id} · ${escapeHTML(p.name||"Unnamed point")}</h4>${verificationBadge(p)}</div><p class="point-description">${escapeHTML(p.location||"Location not recorded")}</p><div class="point-reset">${protectionSummary(protectionOf(c,p),c)}<small>${p.protection?"Recorded for this point":"Uses circuit record"}</small></div><label class="dialog-field">Mapping verification${verificationSelect(p,`pointVerification${p.id}`,`data-point-verification="${p.id}"`)}</label><p class="verification-note">${escapeHTML(verificationNote(p))}</p><details class="point-protection-editor"><summary>Record protection for this point</summary>${protectionFields(p.protection,c,`pointProtection${p.id}`,`data-protection-point="${p.id}"`,true)}</details></article>`).join("")||`<p class="detail-empty">No points are linked yet. Assign outlets / switches to this circuit to document what it supplies.</p>`}</div></section>`;
     if(home().role==="viewer")for(const field of el("circuitDetailBody").querySelectorAll("input,select,textarea"))field.disabled=true;
     el("detailSaveStatus").textContent=home().role==="viewer"?"View-only access":el("saveStatus").textContent;
     for(const id of openEditors){const select=el(id);if(select)select.closest("details").open=true;}
@@ -228,13 +288,24 @@
       setVerification(p,target.value,p.circuitId!==null);
     }else if(target.dataset.protectionField){
       const field=target.dataset.protectionField;
-      if(!["type","device","resetLocation"].includes(field))return;
+      if(!["type","deviceChoice","device","resetLocation"].includes(field))return;
       const pointId=target.dataset.protectionPoint;
       const record=pointId?pointsFor(c.id).find(p=>p.id===Number(pointId)):c;
       if(!record)return;
       if(pointId && field==="type" && !target.value)record.protection=null;
       else{
-        const next={...(record.protection||emptyProtection()),[field]:target.value};
+        const next={...(record.protection||emptyProtection())};
+        if(field==="deviceChoice"){
+          if(target.value==="custom" || target.value==="breaker"){
+            next.deviceKind=target.value;next.devicePointId=null;
+          }else{
+            const id=Number(target.value.replace(/^point:/,""));
+            if(!target.value.startsWith("point:") || !pointsFor(c.id).some(p=>p.id===id))return;
+            next.deviceKind="point";next.devicePointId=id;
+          }
+          // A previous location belongs to the previous device. Linked devices use their current location.
+          if(next.deviceKind!=="custom")next.resetLocation="";
+        }else next[field]=target.value;
         record.protection=assertProtection(next);
       }
     }else return;
@@ -284,9 +355,10 @@
   }
   function assertProtection(value) {
     if(!value || typeof value!=="object" || Array.isArray(value))throw Error("Invalid protection record.");
-    const {type="unknown",device="",resetLocation=""}=value;
+    const {type="unknown",deviceKind="custom",devicePointId=null,device="",resetLocation=""}=value;
     if(typeof type!=="string" || !Object.hasOwn(PROTECTION_LABELS,type) || typeof device!=="string" || device.length>160 || typeof resetLocation!=="string" || resetLocation.length>500)throw Error("Invalid protective device or reset location.");
-    return {type,device,resetLocation};
+    if(!["custom","breaker","point"].includes(deviceKind) || (deviceKind==="point"?!(Number.isSafeInteger(devicePointId)&&devicePointId>0):devicePointId!==null))throw Error("Invalid protective device selection.");
+    return {type,deviceKind,devicePointId,device,resetLocation};
   }
   function assertPanel(data) {
     if (!data || !Number.isInteger(data.spaces) || data.spaces < 12 || data.spaces > 42 || data.spaces % 2 || typeof data.name !== "string" || !data.types || Array.isArray(data.types) || typeof data.types !== "object" || !Array.isArray(data.circuits) || !Number.isSafeInteger(data.nextCircuitId) || data.nextCircuitId < 1) throw Error("Invalid panel format.");
@@ -324,6 +396,11 @@
       return {id:p.id,circuitId:p.circuitId,name:p.name,location:p.location,
         verification:assertVerification(p.verification===undefined?{}:p.verification,p.circuitId!==null),protection:p.protection==null?null:assertProtection(p.protection)};
     });
+    for(const record of [...circuits,...points]){
+      const protection=record.protection,circuitId=Object.hasOwn(record,"circuitId")?record.circuitId:record.id;
+      if(!protection || protection.deviceKind==="custom")continue;
+      if(circuitId===null || (protection.deviceKind==="point" && !points.some(p=>p.id===protection.devicePointId && p.circuitId===circuitId)))throw Error("Choose a protective endpoint on the same circuit.");
+    }
     return {name:data.name,spaces:data.spaces,types,circuits,nextCircuitId:data.nextCircuitId,points,nextPointId:data.nextPointId};
   }
   function assertImport(data) {
@@ -405,12 +482,12 @@
       amps:item.amps==null?"":`${item.amps} A`,gauge:item.gauge?`${item.gauge} AWG`:"",
       labelMode:item.labelMode==="points"?"Outlet / switch names":"Circuit name",
       verification:VERIFICATION_LABELS[verificationOf(item).status],
-      protection:[protectionSearch(protectionOf(item)),...panel.points.filter(p=>p.circuitId===item.id&&p.protection).map(p=>protectionSearch(p.protection))].join(" ")
+      protection:[protectionSearch(protectionOf(item),item,panel),...panel.points.filter(p=>p.circuitId===item.id&&p.protection).map(p=>protectionSearch(p.protection,item,panel))].join(" ")
     };
     const circuit=panel.circuits.find(c=>c.id===item.circuitId);
     return {circuitId:circuit?`${circuit.assignment||"Unassigned"} · ${circuit.name||"Unnamed circuit"}`:"Unassigned",
       name:item.name||"",location:item.location||"",id:String(item.id),verification:VERIFICATION_LABELS[verificationOf(item).status],
-      protection:protectionSearch(protectionOf(circuit,item))};
+      protection:protectionSearch(protectionOf(circuit,item),circuit,panel)};
   }
   function searchPanels(scope) {
     if(scope==="panel")return [state];
@@ -689,7 +766,7 @@
     if (!p || !field) return;
     if (field==="circuitId") {
       const next=target.value ? Number(target.value) : null;
-      if(p.circuitId!==next)invalidateMapping(p);
+      if(p.circuitId!==next){preservePointProtection(p,next);invalidateMapping(p);}
       p.circuitId=next;
     }
     else p[field]=target.value;
@@ -1121,7 +1198,7 @@
     el("addCircuitBtn").addEventListener("click",addCircuit);
     el("circuitRows").addEventListener("input",e=>{if(e.target.matches('[data-field="name"],[data-field="amps"]'))updateCircuit(e.target,false);});
     el("circuitRows").addEventListener("change",e=>{if(e.target.matches('[data-field="assignment"],[data-field="voltage"],[data-field="gauge"],[data-field="labelMode"],[data-field="name"],[data-field="amps"]'))updateCircuit(e.target,true);});
-    el("circuitRows").addEventListener("click",e=>{const btn=e.target.closest("[data-delete]");if(!btn)return;const id=Number(btn.dataset.delete),c=circuitFor(id);if(!c)return;const linked=pointsFor(id).length,subpanels=feederChildren(state.id,id).length;if(!confirm(`Delete ${c.name||"this circuit"}${c.assignment?` at breaker ${c.assignment}`:""}?${linked?` ${linked} linked point${linked===1?"":"s"} will become unassigned.`:""}${subpanels?` ${subpanels} subpanel feeder link${subpanels===1?"":"s"} will be cleared.`:""}`))return;for(const p of state.points)if(p.circuitId===id){invalidateMapping(p);p.circuitId=null;}for(const p of feederChildren(state.id,id))p.parentCircuitId=null;state.circuits=state.circuits.filter(x=>x!==c);renderAll();});
+    el("circuitRows").addEventListener("click",e=>{const btn=e.target.closest("[data-delete]");if(!btn)return;const id=Number(btn.dataset.delete),c=circuitFor(id);if(!c)return;const linked=pointsFor(id).length,subpanels=feederChildren(state.id,id).length;if(!confirm(`Delete ${c.name||"this circuit"}${c.assignment?` at breaker ${c.assignment}`:""}?${linked?` ${linked} linked point${linked===1?"":"s"} will become unassigned.`:""}${subpanels?` ${subpanels} subpanel feeder link${subpanels===1?"":"s"} will be cleared.`:""}`))return;deleteCircuitRecord(c);renderAll();});
     el("addPointBtn").addEventListener("click",addPoint);
     for(const [table,prefix] of [["circuits","circuit"],["points","point"]]){
       el(`${prefix}Search`).addEventListener("input",()=>applyTableSearch(table));
@@ -1136,7 +1213,7 @@
     }
     el("pointRows").addEventListener("input",e=>{if(e.target.matches('[data-point-field="name"],[data-point-field="location"]'))updatePoint(e.target,false);});
     el("pointRows").addEventListener("change",e=>{if(e.target.matches('[data-point-field="name"],[data-point-field="location"],[data-point-field="circuitId"]'))updatePoint(e.target,true);});
-    el("pointRows").addEventListener("click",e=>{const btn=e.target.closest("[data-delete-point]");if(!btn)return;const id=Number(btn.dataset.deletePoint);const p=state.points.find(x=>x.id===id);if(!p)return;if(!confirm(`Delete point ${id}${p.name?` (${p.name})`:""}? Its number will not be reused.`))return;state.points=state.points.filter(x=>x!==p);renderAll();});
+    el("pointRows").addEventListener("click",e=>{const btn=e.target.closest("[data-delete-point]");if(!btn)return;const id=Number(btn.dataset.deletePoint);const p=state.points.find(x=>x.id===id);if(!p)return;if(!confirm(`Delete point ${id}${p.name?` (${p.name})`:""}? Its number will not be reused.`))return;deletePointRecord(p);renderAll();});
     for (const [table,id] of [["circuits","circuitTable"],["points","pointTable"]]) el(id).addEventListener("click",e=>{const button=e.target.closest("[data-sort-key]");if(button)changeSort(table,button.dataset.sortKey);});
     el("printDirectoryBtn").addEventListener("click",()=>openScopeDialog("print"));window.addEventListener("afterprint",()=>{delete document.body.dataset.print;});
     el("exportBtn").addEventListener("click",()=>openScopeDialog("export"));

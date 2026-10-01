@@ -25,7 +25,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-VERSION = "0.5.0.9"
+VERSION = "0.5.0.10"
 ROOT = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 PROGRAM_LAYOUT = ROOT.name.lower() == "program"
 APP_ROOT = ROOT.parent if PROGRAM_LAYOUT else ROOT
@@ -125,7 +125,11 @@ def validate_protection(value):
     device, location = value.get("device", ""), value.get("resetLocation", "")
     if not isinstance(device, str) or len(device) > 160 or not isinstance(location, str) or len(location) > 500:
         raise ApiError(400, "Invalid protective device or reset location.")
-    return {"type": value.get("type", "unknown"), "device": device, "resetLocation": location}
+    kind, point_id = value.get("deviceKind", "custom"), value.get("devicePointId")
+    if kind not in ("custom", "breaker", "point") or (not valid_id(point_id) if kind == "point" else point_id is not None):
+        raise ApiError(400, "Invalid protective device selection.")
+    return {"type": value.get("type", "unknown"), "deviceKind": kind, "devicePointId": point_id,
+            "device": device, "resetLocation": location}
 
 
 def validate_home(home):
@@ -194,6 +198,15 @@ def validate_home(home):
             clean_points.append({"id": point["id"], "circuitId": circuit_id, "name": point["name"], "location": point["location"],
                                  "verification": validate_verification(point.get("verification", {}), circuit_id is not None),
                                  "protection": validate_protection(point["protection"]) if point.get("protection") is not None else None})
+        points_by_id = {point["id"]: point for point in clean_points}
+        for record in clean_circuits + clean_points:
+            protection = record["protection"]
+            if protection is None or protection["deviceKind"] == "custom":
+                continue
+            circuit_id = record.get("circuitId", record["id"])
+            endpoint = points_by_id.get(protection["devicePointId"])
+            if circuit_id is None or protection["deviceKind"] == "point" and (endpoint is None or endpoint["circuitId"] != circuit_id):
+                raise ApiError(400, "Choose a protective endpoint on the same circuit.")
         circuit_ids_by_panel[panel["id"]] = circuit_ids
         clean_panels.append({"id": panel["id"], "name": panel["name"], "kind": panel["kind"],
                              "parentPanelId": panel.get("parentPanelId"), "parentCircuitId": panel.get("parentCircuitId"),
