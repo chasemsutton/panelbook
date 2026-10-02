@@ -1,12 +1,12 @@
-# Panelbook 0.5.0.10
+# Panelbook 0.5.0.11
 
-Protective devices now have a selector in the circuit detail view.
+Circuits and outlets / switches are compact on phones.
 
-- Choose **Breaker itself**, an outlet / switch endpoint on that circuit, or **Custom / endpoint group**. The same choices are available for individual endpoint protection overrides.
-- Selected breakers show their current panel and breaker position. Selected endpoints show their current name and reset location. A separate reset location can override the automatic location.
-- Renaming an endpoint or changing its location updates linked protection records. Moving or deleting a referenced endpoint preserves its last name and reset location as a custom record and flags confirmed mappings for rechecking.
-- Existing free-text protective devices are retained as custom records. Device selections save automatically, remain searchable, and are included in JSON imports and exports.
+- Each circuit appears as a short card with its name and chips for breaker, voltage, amps, wire size, and verification. Undersized wire stays highlighted.
+- Each outlet / switch shows its name, number, circuit, verification, and a one-line location. Tap the card to read a long location in full, and tap again to shorten it.
+- Tap the pencil to open a card's fields for editing, then **Done** to close it. One card per list is open at a time, and new circuits and outlets / switches open ready to edit.
+- Desktop tables and printed directories are unchanged.
 
 Existing accounts and data remain in the `panelbook-data` volume. In Arcane, redeploy the project to pull the updated image.
 
-The Windows and hosted packages are `Panelbook-Portable-v0.5.0.10.zip` and `Panelbook-Server-v0.5.0.10.zip`. Windows portable users can install this release with **Check for updates**.
+The Windows and hosted packages are `Panelbook-Portable-v0.5.0.11.zip` and `Panelbook-Server-v0.5.0.11.zip`. Windows portable users can install this release with **Check for updates**.

@@ -35,6 +35,8 @@
   let appEventsWired = false;
   let resetUserId = null;
   let detailCircuitId = null;
+  // Phones show compact rows; one row per table can be opened for editing.
+  const editingRows = {circuits:null,points:null}, openLocations = new Set();
 
   async function api(path,method="GET",data) {
     const options={method,credentials:"same-origin",headers:{}};
@@ -643,14 +645,44 @@
       catch(error){el("feederStatus").textContent=error.message;}
     }
   }
+  const rowKey = id => `${state.id}:${id}`;
+  function editCell(label,open) {
+    return `<td class="edit-cell"><button class="row-edit-btn" type="button" data-edit-row aria-expanded="${open}" aria-label="${open?"Done editing":"Edit"} ${escapeHTML(label)}" title="${open?"Done":"Edit"}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span>Done</span></button></td>`;
+  }
+  function circuitSummary(c) {
+    const warn=danger(c);
+    const chips=[c.assignment?`<span class="chip breaker">Brk ${escapeHTML(c.assignment)}</span>`:`<span class="chip unassigned">Unassigned</span>`,`<span class="chip">${c.voltage} V</span>`,
+      c.amps?`<span class="chip">${c.amps} A</span>`:"",c.gauge?`<span class="chip${warn?" warning":""}" title="${warn?"Undersized wire":""}">${escapeHTML(c.gauge)} AWG${warn?" ⚠":""}</span>`:"",verificationBadge(c)];
+    return `<strong class="compact-name${c.name?"":" untitled"}">${escapeHTML(c.name||"Unnamed circuit")}</strong><div class="chips">${chips.join("")}</div>`;
+  }
+  function pointSummary(p) {
+    const c=p.circuitId===null?null:circuitFor(p.circuitId);
+    const chips=[`<span class="chip number">#${p.id}</span>`,c?`<span class="chip breaker">${c.assignment?`Brk ${escapeHTML(c.assignment)}`:"Unassigned"} · ${escapeHTML(c.name||"Unnamed circuit")}</span>`:`<span class="chip unassigned">No circuit</span>`,verificationBadge(p)];
+    return `<strong class="compact-name${p.name?"":" untitled"}">${escapeHTML(p.name||"Unnamed point")}</strong><div class="chips">${chips.join("")}</div>${p.location?`<p class="compact-location">${escapeHTML(p.location)}</p>`:""}`;
+  }
+  function toggleRowEditing(table,row) {
+    const key=rowKey(Number(table==="circuits"?row.dataset.circuitId:row.dataset.pointId));
+    editingRows[table]=editingRows[table]===key?null:key;
+    if(table==="circuits")renderRows();else renderPointRows();
+    applyRole();
+    el(table==="circuits"?"circuitRows":"pointRows").querySelector("tr.editing")?.scrollIntoView({block:"nearest"});
+  }
+  // Long outlet locations are cut to one line until the card is tapped.
+  function toggleLocation(row) {
+    const key=rowKey(Number(row.dataset.pointId)),text=row.querySelector(".compact-location");
+    if(!text || (!openLocations.has(key) && text.scrollWidth<=text.clientWidth))return;
+    if(!openLocations.delete(key))openLocations.add(key);
+    row.classList.toggle("location-open",openLocations.has(key));
+  }
   function renderRows() {
     const body = el("circuitRows"); body.innerHTML = "";
     const keys = assignments(); const used = new Set(state.circuits.map(c => c.assignment).filter(Boolean));
     for (const c of sortedRows("circuits")) {
       const tr = document.createElement("tr"); tr.dataset.circuitId = c.id; tr.className = danger(c) ? "row-warning" : "";
+      const editing = editingRows.circuits===rowKey(c.id); tr.classList.toggle("editing",editing);
       const options = [`<option value="">Unassigned</option>`,...keys.filter(k => isCompatible(c.voltage,k) && (k === c.assignment || !used.has(k))).map(k => `<option value="${escapeHTML(k)}"${k === c.assignment ? " selected" : ""}>${escapeHTML(k)}</option>`)].join("");
       const gaugeOptions = [`<option value="">—</option>`,...Object.keys(GAUGES).map(g => `<option value="${g}"${g === c.gauge ? " selected" : ""}>${g} AWG</option>`)].join("");
-      tr.innerHTML = `<td class="assignment-cell"><select data-field="assignment" aria-label="Breaker for ${escapeHTML(c.name || "circuit")}" title="${c.voltage} V positions only">${options}</select></td><td class="name-cell"><input data-field="name" aria-label="Friendly name for breaker ${escapeHTML(c.assignment || "unassigned")}" maxlength="100" placeholder="Kitchen lights" value="${escapeHTML(c.name)}"><div class="record-meta">${verificationBadge(c)}<button class="detail-link" type="button" data-detail-circuit="${c.id}" aria-label="Details for ${escapeHTML(c.name||"unnamed circuit")}">Details →</button></div></td><td class="voltage-cell"><select data-field="voltage" aria-label="Voltage for ${escapeHTML(c.name || "circuit")}"><option value="120"${c.voltage === 120 ? " selected" : ""}>120 V</option><option value="240"${c.voltage === 240 ? " selected" : ""}>240 V</option></select></td><td class="amps-cell"><input data-field="amps" aria-label="Amps for ${escapeHTML(c.name || "circuit")}" type="number" min="1" max="400" step="1" placeholder="A" value="${c.amps ?? ""}"></td><td class="gauge-cell"><select data-field="gauge" aria-label="Wire gauge for ${escapeHTML(c.name || "circuit")}">${gaugeOptions}</select><div class="wire-warning">${danger(c) ? "Undersized wire" : ""}</div></td><td class="label-cell"><select data-field="labelMode" aria-label="Breaker label for ${escapeHTML(c.name || "circuit")}"><option value="circuits"${c.labelMode === "circuits" ? " selected" : ""}>Circuit name</option><option value="points"${c.labelMode === "points" ? " selected" : ""}>Outlet / switch names</option></select></td><td><button class="delete-btn" type="button" data-delete="${c.id}" aria-label="Delete circuit at ${escapeHTML(c.assignment || "unassigned")}" title="Delete circuit">×</button></td>`;
+      tr.innerHTML = `<td class="assignment-cell"><select data-field="assignment" aria-label="Breaker for ${escapeHTML(c.name || "circuit")}" title="${c.voltage} V positions only">${options}</select></td><td class="name-cell"><input data-field="name" aria-label="Friendly name for breaker ${escapeHTML(c.assignment || "unassigned")}" maxlength="100" placeholder="Kitchen lights" value="${escapeHTML(c.name)}"><div class="record-meta">${verificationBadge(c)}<button class="detail-link" type="button" data-detail-circuit="${c.id}" aria-label="Details for ${escapeHTML(c.name||"unnamed circuit")}">Details →</button></div></td><td class="voltage-cell"><select data-field="voltage" aria-label="Voltage for ${escapeHTML(c.name || "circuit")}"><option value="120"${c.voltage === 120 ? " selected" : ""}>120 V</option><option value="240"${c.voltage === 240 ? " selected" : ""}>240 V</option></select></td><td class="amps-cell"><input data-field="amps" aria-label="Amps for ${escapeHTML(c.name || "circuit")}" type="number" min="1" max="400" step="1" placeholder="A" value="${c.amps ?? ""}"></td><td class="gauge-cell"><select data-field="gauge" aria-label="Wire gauge for ${escapeHTML(c.name || "circuit")}">${gaugeOptions}</select><div class="wire-warning">${danger(c) ? "Undersized wire" : ""}</div></td><td class="label-cell"><select data-field="labelMode" aria-label="Breaker label for ${escapeHTML(c.name || "circuit")}"><option value="circuits"${c.labelMode === "circuits" ? " selected" : ""}>Circuit name</option><option value="points"${c.labelMode === "points" ? " selected" : ""}>Outlet / switch names</option></select></td><td><button class="delete-btn" type="button" data-delete="${c.id}" aria-label="Delete circuit at ${escapeHTML(c.assignment || "unassigned")}" title="Delete circuit">×</button></td>${editCell(c.name||"circuit",editing)}<td class="compact-cell">${circuitSummary(c)}</td>`;
       body.append(tr);
     }
     el("emptyCircuits").hidden = state.circuits.length > 0;
@@ -661,8 +693,9 @@
     const body=el("pointRows"); body.innerHTML="";
     for (const p of sortedRows("points")) {
       const tr=document.createElement("tr"); tr.dataset.pointId=String(p.id);
+      const editing=editingRows.points===rowKey(p.id); tr.classList.toggle("editing",editing); tr.classList.toggle("location-open",openLocations.has(rowKey(p.id)));
       const options=[`<option value="">Unassigned</option>`,...state.circuits.slice().sort((a,b)=>breakerOrder(a.assignment,b.assignment)).map(c=>`<option value="${c.id}"${p.circuitId === c.id ? " selected" : ""}>${escapeHTML(c.assignment || "Unassigned")} · ${escapeHTML(c.name || "Unnamed circuit")}</option>`)].join("");
-      tr.innerHTML=`<td class="point-circuit-cell"><select data-point-field="circuitId" aria-label="Circuit for point ${p.id}">${options}</select></td><td class="name-cell"><input data-point-field="name" aria-label="Point name ${p.id}" maxlength="160" placeholder="Guest room outlet" value="${escapeHTML(p.name)}"><div class="record-meta">${verificationBadge(p)}${p.circuitId!==null?`<button class="detail-link" type="button" data-detail-circuit="${p.circuitId}">View circuit →</button>`:""}</div></td><td class="point-location-cell"><textarea data-point-field="location" aria-label="Location for point ${p.id}" maxlength="500" placeholder="Wall or room details">${escapeHTML(p.location)}</textarea></td><td class="serial-cell"><span>${p.id}</span></td><td><button class="delete-btn" type="button" data-delete-point="${p.id}" aria-label="Delete point ${p.id}" title="Delete point">×</button></td>`;
+      tr.innerHTML=`<td class="point-circuit-cell"><select data-point-field="circuitId" aria-label="Circuit for point ${p.id}">${options}</select></td><td class="name-cell"><input data-point-field="name" aria-label="Point name ${p.id}" maxlength="160" placeholder="Guest room outlet" value="${escapeHTML(p.name)}"><div class="record-meta">${verificationBadge(p)}${p.circuitId!==null?`<button class="detail-link" type="button" data-detail-circuit="${p.circuitId}">View circuit →</button>`:""}</div></td><td class="point-location-cell"><textarea data-point-field="location" aria-label="Location for point ${p.id}" maxlength="500" placeholder="Wall or room details">${escapeHTML(p.location)}</textarea></td><td class="serial-cell"><span>${p.id}</span></td><td><button class="delete-btn" type="button" data-delete-point="${p.id}" aria-label="Delete point ${p.id}" title="Delete point">×</button></td>${editCell(p.name||`point ${p.id}`,editing)}<td class="compact-cell">${pointSummary(p)}</td>`;
       body.append(tr);
     }
     el("emptyPoints").hidden=state.points.length>0;
@@ -681,7 +714,7 @@
     el("importBtn").disabled=readonly;
     for(const id of ["renameHomeBtn","addMainBtn","addSubBtn","convertPanelBtn","deletePanelBtn","addCircuitBtn","addPointBtn","panelName","spaceCount","breakerType","parentPanelSelect","feederCircuitSelect"])
       el(id).disabled=readonly;
-    for(const field of document.querySelectorAll("#circuitRows input,#circuitRows select,#circuitRows button:not([data-detail-circuit]),#pointRows input,#pointRows select,#pointRows textarea,#pointRows button:not([data-detail-circuit])"))field.disabled=readonly;
+    for(const field of document.querySelectorAll("#circuitRows input,#circuitRows select,#circuitRows button:not([data-detail-circuit],[data-edit-row]),#pointRows input,#pointRows select,#pointRows textarea,#pointRows button:not([data-detail-circuit],[data-edit-row])"))field.disabled=readonly;
   }
   function convert(n,type) {
     const current = kind(n); if (current === type) return;
@@ -716,13 +749,13 @@
   }
   function addCircuit() {
     el("circuitSearch").value="";
-    const id=state.nextCircuitId++;
+    const id=state.nextCircuitId++; editingRows.circuits=rowKey(id);
     state.circuits.push({id,name:"",assignment:"",voltage:120,amps:null,gauge:"",labelMode:"circuits",verification:emptyVerification(),protection:emptyProtection()});
     renderAll(); el("circuitRows").querySelector(`[data-circuit-id="${id}"] [data-field="name"]`)?.focus();
   }
   function addPoint() {
     el("pointSearch").value="";
-    const id=state.nextPointId++;
+    const id=state.nextPointId++; editingRows.points=rowKey(id);
     state.points.push({id,circuitId:null,name:"",location:"",verification:emptyVerification(),protection:null});
     renderAll(); el("pointRows").querySelector(`[data-point-id="${id}"] [data-point-field="name"]`)?.focus();
   }
@@ -1200,6 +1233,11 @@
     el("circuitRows").addEventListener("change",e=>{if(e.target.matches('[data-field="assignment"],[data-field="voltage"],[data-field="gauge"],[data-field="labelMode"],[data-field="name"],[data-field="amps"]'))updateCircuit(e.target,true);});
     el("circuitRows").addEventListener("click",e=>{const btn=e.target.closest("[data-delete]");if(!btn)return;const id=Number(btn.dataset.delete),c=circuitFor(id);if(!c)return;const linked=pointsFor(id).length,subpanels=feederChildren(state.id,id).length;if(!confirm(`Delete ${c.name||"this circuit"}${c.assignment?` at breaker ${c.assignment}`:""}?${linked?` ${linked} linked point${linked===1?"":"s"} will become unassigned.`:""}${subpanels?` ${subpanels} subpanel feeder link${subpanels===1?"":"s"} will be cleared.`:""}`))return;deleteCircuitRecord(c);renderAll();});
     el("addPointBtn").addEventListener("click",addPoint);
+    for(const [table,body] of [["circuits","circuitRows"],["points","pointRows"]]) el(body).addEventListener("click",e=>{
+      const row=e.target.closest("tr");if(!row)return;
+      if(e.target.closest("[data-edit-row]"))toggleRowEditing(table,row);
+      else if(table==="points" && e.target.closest(".compact-cell"))toggleLocation(row);
+    });
     for(const [table,prefix] of [["circuits","circuit"],["points","point"]]){
       el(`${prefix}Search`).addEventListener("input",()=>applyTableSearch(table));
       el(`${prefix}SearchColumn`).addEventListener("change",()=>applyTableSearch(table));
